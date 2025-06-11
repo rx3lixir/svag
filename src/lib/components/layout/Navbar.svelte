@@ -14,7 +14,8 @@
   <Container>
     <div class="flex items-center relative px-4 sm:px-6 lg:px-8 h-16">
       <!-- Logo -->
-      <a href="/" class="ml-4 flex lg:ml-0 gap-x-2 items-center">
+
+      <a href="/" class="ml-2 flex lg:ml-0 gap-x-2">
         <Ticket size={30} />
       </a>
 

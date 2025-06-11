@@ -1,7 +1,7 @@
 import { apiClient } from "../../client";
 import type { Category } from "./categories.types";
 
-const CATEGORIES_ENDPOINT = "/category/api/v1/categories";
+const CATEGORIES_ENDPOINT = "/event/api/v1/categories";
 
 export const categoriesApi = {
   // Получить все категории
