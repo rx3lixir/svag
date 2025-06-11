@@ -18,7 +18,7 @@
   );
 </script>
 
-<nav class="sm:hidden mx-6 flex items-center space-x-4 lg:space-x-6">
+<nav class="hidden md:flex mx-6 items-center space-x-4 lg:space-x-6">
   {#each routes as route}
     <a href={route.href} class="text-sm font-medium hover:opacity-60"
       >{route.label}</a

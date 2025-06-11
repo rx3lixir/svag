@@ -6,7 +6,7 @@
   let { categories }: { categories: Category[] } = $props();
 </script>
 
-<Sidebar.Root>
+<Sidebar.Root side="left" variant="sidebar" collapsible="icon">
   <Sidebar.Content>
     <Sidebar.GroupLabel>Категории</Sidebar.GroupLabel>
     <SidebarGroupContent>
