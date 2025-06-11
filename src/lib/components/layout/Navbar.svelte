@@ -1,35 +1,18 @@
 <script lang="ts">
   import type { Category } from "$lib/api";
 
-  import Container from "../ui/Container.svelte";
-  import MainNav from "./MainNav.svelte";
-  import UserMenu from "./UserMenu.svelte";
-
-  import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-
-  import { Ticket } from "lucide-svelte";
-
-  let { categories = [] }: { categories: Category[] } = $props();
+  let { categories }: { categories: Category[] } = $props();
 </script>
 
-<div class="border-b">
-  <Container>
-    <div class="flex items-center relative px-4 sm:px-6 lg:px-8 h-16">
-      <!-- Sidebar Trigger -->
-      <Sidebar.Trigger class="mr-2" />
-
-      <!-- Logo -->
-      <a href="/" class="ml-2 flex lg:ml-0 gap-x-2">
-        <Ticket size={30} />
-      </a>
-
-      <!-- Main Navigation -->
-      <MainNav {categories} />
-
-      <!-- User Actions -->
-      <div class="ml-auto">
-        <UserMenu />
-      </div>
-    </div>
-  </Container>
+<!-- This navbar is now integrated into the main layout -->
+<!-- You can add additional navigation items here if needed -->
+<div class="flex items-center space-x-4">
+  {#each categories.slice(0, 3) as category}
+    <a
+      href="/"
+      class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {category.name}
+    </a>
+  {/each}
 </div>
