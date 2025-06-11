@@ -5,6 +5,8 @@
   import MainNav from "./MainNav.svelte";
   import UserMenu from "./UserMenu.svelte";
 
+  import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+
   import { Ticket } from "lucide-svelte";
 
   let { categories = [] }: { categories: Category[] } = $props();
@@ -13,8 +15,10 @@
 <div class="border-b">
   <Container>
     <div class="flex items-center relative px-4 sm:px-6 lg:px-8 h-16">
-      <!-- Logo -->
+      <!-- Sidebar Trigger -->
+      <Sidebar.Trigger class="mr-2" />
 
+      <!-- Logo -->
       <a href="/" class="ml-2 flex lg:ml-0 gap-x-2">
         <Ticket size={30} />
       </a>
@@ -23,7 +27,9 @@
       <MainNav {categories} />
 
       <!-- User Actions -->
-      <UserMenu />
+      <div class="ml-auto">
+        <UserMenu />
+      </div>
     </div>
   </Container>
 </div>

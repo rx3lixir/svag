@@ -10,16 +10,17 @@
   let { data, children }: { data: any; children: any } = $props();
 </script>
 
-<div class="min-h-screen flex flex-col">
-  <Navbar categories={data.categories} />
+<Sidebar.Provider>
+  <div class="min-h-screen flex flex-col">
+    <Navbar categories={data.categories} />
 
-  <Sidebar.Provider>
-    <CatSidebar categories={data.categories} />
-    <main class="flex-1">
-      <Sidebar.Trigger />
-      {@render children?.()}
-    </main>
-  </Sidebar.Provider>
+    <div class="flex flex-1">
+      <CatSidebar categories={data.categories} />
+      <main class="flex-1">
+        {@render children?.()}
+      </main>
+    </div>
 
-  <Footer />
-</div>
+    <Footer />
+  </div>
+</Sidebar.Provider>
