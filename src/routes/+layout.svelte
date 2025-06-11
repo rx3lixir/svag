@@ -35,7 +35,7 @@
 
       <!-- Main content renders in +page.svelte-->
       <main class="flex-1 p-4">
-        {@render children?.()}
+        {@render children?.(data)}
       </main>
 
       <!-- Footer -->
