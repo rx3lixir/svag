@@ -13,9 +13,11 @@
 
 <Sidebar.Provider>
   <div class="min-h-screen flex">
+    <!-- Sidebar logic -->
     <CatSidebar categories={data.categories} />
 
     <Sidebar.Inset class="flex flex-col flex-1">
+      <!-- Header -->
       <header
         class="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12"
       >
@@ -31,10 +33,12 @@
         </div>
       </header>
 
+      <!-- Main content renders in +page.svelte-->
       <main class="flex-1 p-4">
         {@render children?.()}
       </main>
 
+      <!-- Footer -->
       <Footer />
     </Sidebar.Inset>
   </div>
