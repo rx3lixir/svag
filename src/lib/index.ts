@@ -1,12 +1,12 @@
-// place files you want to import through the `$lib` alias in this folder.
-export { eventsApi } from "./services/events/events.api";
-export { categoriesApi } from "./services/categories/categories.api";
-export { usersApi } from "./services/users/users.api";
-export { authApi } from "./services/auth/auth.api";
+// Экспорт апишек
+export { eventsApi } from "$lib/api/services/events/events.api";
+export { categoriesApi } from "$lib/api/services/categories/categories.api";
+export { usersApi } from "$lib/api/services/users/users.api";
+export { authApi } from "$lib/api/services/auth/auth.api";
 
 // Экспорт типов
-export * from "./services/events/events.types";
-export * from "./services/categories/categories.types";
-export * from "./services/users/users.types";
-export * from "./services/auth/auth.types";
-export * from "./types/common";
+export * from "$lib/api/services/events/events.types";
+export * from "$lib/api/services/categories/categories.types";
+export * from "$lib/api/services/users/users.types";
+export * from "$lib/api/services/auth/auth.types";
+export * from "$lib/api/types/common";

@@ -10,7 +10,7 @@
   <div class="space-y-10 pb-10">
     <AdEvent />
     <div class="flex flex-col gap-y-8 px-4 sm:px-6 lg:px-8">
-      <EventList categories={data} />
+      <EventList events={data.events} />
     </div>
   </div>
 </Container>

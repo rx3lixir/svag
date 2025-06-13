@@ -12,19 +12,10 @@ export interface Event extends BaseEntity {
   source: string;
 }
 
-export interface CreateEventDto {
-  name: string;
-  description: string;
-  category_id: number;
-  date: string;
-  time: string;
-  location: string;
-  price: number;
-  image: string;
-  source: string;
+export interface Image {
+  id: string;
+  url: string;
 }
-
-export interface UpdateEventDto extends Partial<CreateEventDto> {}
 
 export interface EventFilters {
   category_id?: number;
