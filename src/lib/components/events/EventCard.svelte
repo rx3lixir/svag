@@ -7,7 +7,7 @@
 
 <div>
   <div
-    class="group cursor-pointer border p-3 space-y-4 hover:shadow transition"
+    class="group cursor-pointer border p-3 space-y-4 hover:shadow transition h-full"
   >
     <!-- Верх: фото, бейджи, кнопки избранное-->
     <div class="aspect-square relative overflow-hidden">
