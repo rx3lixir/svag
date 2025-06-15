@@ -15,6 +15,12 @@ class ApiClient {
     this.headers = {
       "Content-type": "application/json",
     };
+
+    // Отладочная информация
+    if (!browser) {
+      console.log(`🔗 API Client initialized with baseUrl: ${this.baseUrl}`);
+      console.log(`🔗 Environment GATEWAY_URL: ${env.GATEWAY_URL}`);
+    }
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
@@ -23,6 +29,13 @@ class ApiClient {
         message: "Неизвестная ошибка",
         code: "UNKNOWN_ERROR",
       }));
+
+      // Логируем ошибку для отладки
+      console.error(`❌ API Error [${response.status}]:`, {
+        url: response.url,
+        status: response.status,
+        error: error,
+      });
 
       throw {
         status: response.status,
@@ -52,11 +65,15 @@ class ApiClient {
     }
 
     // Логика присвоения токена
-
     const token = this.getAuthToken();
     if (token) {
       this.headers["Authorization"] = `Bearer ${token}`;
     }
+
+    // Отладочная информация
+    console.log(
+      `🚀 Making ${fetchOptions.method || "GET"} request to: ${url.toString()}`,
+    );
 
     try {
       const response = await fetch(url.toString(), {
@@ -67,13 +84,16 @@ class ApiClient {
         },
       });
 
+      console.log(`✅ Response status: ${response.status}`);
       return this.handleResponse<T>(response);
     } catch (error) {
+      console.error(`🔥 Network error:`, error);
+
       if (error instanceof Error) {
         throw {
           status: 0,
           code: "NETWORK_ERROR",
-          message: "Ошибка сети. Проверьте подключение.",
+          message: "Ошибка сети. Проверьте подключение к API Gateway.",
           details: { originalError: error.message },
         } as ApiError;
       }
@@ -81,7 +101,7 @@ class ApiClient {
     }
   }
 
-  // Методы запросов
+  // Методы запросов остаются теми же
   get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     return this.request<T>(endpoint, { method: "GET", params });
   }

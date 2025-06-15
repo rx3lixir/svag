@@ -17,7 +17,9 @@
         </p>
       </div>
       <MainNav {categories} />
-      <UserMenu />
+      <span class="ml-auto">
+        <UserMenu />
+      </span>
     </div>
   </Container>
 </div>
