@@ -1,23 +1,18 @@
 <script lang="ts">
   import Footer from "$lib/components/layout/Footer.svelte";
-  import CatSidebar from "$lib/components/layout/CatSidebar.svelte";
-  import MainNav from "$lib/components/layout/MainNav.svelte";
-
-  import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+  import Navbar from "$lib/components/layout/Navbar.svelte";
+  import Container from "$lib/components/ui/Container.svelte";
 
   import "../app.css";
 
   let { data, children }: { data: any; children: any } = $props();
 </script>
 
-<Sidebar.Provider>
+<Container>
   <div class="min-h-screen flex">
-    <!-- Sidebar logic -->
-    <CatSidebar categories={data.categories} />
-
-    <Sidebar.Inset class="flex flex-col flex-1">
+    <div class="flex flex-col flex-1">
       <!-- Header -->
-      <MainNav categories={data.categories} />
+      <Navbar categories={data} />
 
       <!-- Main content that renders in +page.svelte-->
       <main class="flex-1 p-4">
@@ -26,6 +21,6 @@
 
       <!-- Footer -->
       <Footer />
-    </Sidebar.Inset>
+    </div>
   </div>
-</Sidebar.Provider>
+</Container>
