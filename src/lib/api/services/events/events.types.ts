@@ -12,9 +12,50 @@ export interface Event extends BaseEntity {
   source: string;
 }
 
-export interface Image {
-  id: string;
-  url: string;
+export interface EventsListResponse {
+  events: Event[];
+  pagination?: PaginationMeta;
+}
+
+export interface PaginationMeta {
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface SearchFilters {
+  search_text?: string;
+  category_ids?: number[];
+  min_price?: number;
+  max_price?: number;
+  date_from?: string;
+  date_to?: string;
+  location?: string;
+  source?: string;
+  limit?: number;
+  offset?: number;
+  include_count?: boolean;
+}
+
+export interface SuggesionRequest {
+  query: string;
+  max_results?: number;
+  fields?: string[];
+}
+
+export interface Suggestion {
+  text: string;
+  score: number;
+  type: "event" | "location" | "category";
+  category?: string;
+  event_id?: number;
+}
+
+export interface SuggestionsResponse {
+  suggestions: Suggestion[];
+  query: string;
+  total: number;
 }
 
 export interface EventFilters {
@@ -25,4 +66,9 @@ export interface EventFilters {
   price_min?: number;
   price_max?: number;
   search?: string;
+}
+
+export interface Image {
+  id: string;
+  url: string;
 }

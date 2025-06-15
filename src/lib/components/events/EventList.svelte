@@ -2,6 +2,7 @@
   import type { Event } from "$lib/api/services/events/events.types";
   import NoResults from "$lib/components/ui/NoResults.svelte";
   import EventCard from "./EventCard.svelte";
+
   let { events }: { events: Event[] } = $props();
 </script>
 
