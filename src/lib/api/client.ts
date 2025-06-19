@@ -1,4 +1,3 @@
-import { env } from "$env/dynamic/private";
 import { browser } from "$app/environment";
 import type { ApiError } from "./types/common";
 
@@ -7,19 +6,20 @@ class ApiClient {
   private headers: Record<string, string>;
 
   constructor() {
-    // В браузере - относительные пути, на сервере - полный URL
+    // Браузер - прямые запросы на гейт через прокси
+    // Сервер - прямое подключение к гейту
     this.baseUrl = browser
-      ? "/api/gateway"
-      : env.GATEWAY_URL || "http://localhost:8080";
+      ? ""
+      : process.env.GATEWAY_URL || "http://localhost:8080";
 
     this.headers = {
       "Content-type": "application/json",
     };
 
-    // Отладочная информация
+    // Отладочная информация только на сервере
     if (!browser) {
-      console.log(`🔗 API Client initialized with baseUrl: ${this.baseUrl}`);
-      console.log(`🔗 Environment GATEWAY_URL: ${env.GATEWAY_URL}`);
+      console.log(`API Client initialized with baseUrl: ${this.baseUrl}`);
+      console.log(`Environment GATEWAY_URL: ${process.env.GATEWAY_URL}`);
     }
   }
 
@@ -31,7 +31,7 @@ class ApiClient {
       }));
 
       // Логируем ошибку для отладки
-      console.error(`❌ API Error [${response.status}]:`, {
+      console.error(`API Error [${response.status}]:`, {
         url: response.url,
         status: response.status,
         error: error,
@@ -54,7 +54,10 @@ class ApiClient {
     const { params, ...fetchOptions } = options;
 
     // Строим URL с query параметрами
-    const url = new URL(`${this.baseUrl}${endpoint}`);
+    const url = new URL(
+      `${this.baseUrl}${endpoint}`,
+      browser ? window.location.origin : undefined,
+    );
 
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -72,7 +75,7 @@ class ApiClient {
 
     // Отладочная информация
     console.log(
-      `🚀 Making ${fetchOptions.method || "GET"} request to: ${url.toString()}`,
+      `Making ${fetchOptions.method || "GET"} request to: ${url.toString()}`,
     );
 
     try {
@@ -84,10 +87,10 @@ class ApiClient {
         },
       });
 
-      console.log(`✅ Response status: ${response.status}`);
+      console.log(`Response status: ${response.status}`);
       return this.handleResponse<T>(response);
     } catch (error) {
-      console.error(`🔥 Network error:`, error);
+      console.error(`Network error:`, error);
 
       if (error instanceof Error) {
         throw {
@@ -101,7 +104,7 @@ class ApiClient {
     }
   }
 
-  // Методы запросов остаются теми же
+  // Методы запросов
   get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     return this.request<T>(endpoint, { method: "GET", params });
   }

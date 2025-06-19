@@ -45,11 +45,15 @@ export const eventsApi = {
   async getSuggestions(
     request: SuggesionRequest,
   ): Promise<SuggestionsResponse> {
-    return apiClient.get<SuggestionsResponse>(`${EVENTS_ENDPOINT}/suggesions`, {
-      q: request.query,
-      max_results: request.max_results || 10,
-      fields: request.fields?.join(",") || `name, location`,
-    });
+    // Исправил опечатку: suggesions -> suggestions
+    return apiClient.get<SuggestionsResponse>(
+      `${EVENTS_ENDPOINT}/suggestions`,
+      {
+        q: request.query,
+        max_results: request.max_results || 10,
+        fields: request.fields?.join(",") || `name, location`,
+      },
+    );
   },
 
   // Вспомогательные методы для удобства
