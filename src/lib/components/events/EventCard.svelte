@@ -7,7 +7,7 @@
 
 <div class="h-full">
   <div
-    class="group cursor-pointer border p-3 space-y-4 hover:shadow transition h-full flex flex-col"
+    class="rounded-md group cursor-pointer border p-3 space-y-4 hover:shadow-md transition h-full flex flex-col"
   >
     <!-- Верх: фото, бейджи, кнопки избранное-->
     <div class="aspect-square relative overflow-hidden flex-shrink-0">
@@ -15,11 +15,11 @@
       <img
         src={event.image}
         alt={event.name}
-        class="absolute inset-0 w-full h-full object-cover"
+        class="rounded-md absolute inset-0 w-full h-full object-cover"
       />
 
       <!-- Бейджик категории -->
-      <Badge variant="default" class="absolute top-2 left-2 z-10">
+      <Badge variant="default" class="rounded-md absolute top-2 left-2 z-10">
         {event.category_id || "Н/и"}
       </Badge>
 
@@ -48,7 +48,7 @@
 
       <!-- Цена - нижняя часть, прижимается к низу -->
       <div class="flex items-center justify-between mt-auto">
-        <span class="font-semibold">{event.price}</span>
+        <span class="font-semibold">{event.price} ₽</span>
       </div>
     </div>
   </div>

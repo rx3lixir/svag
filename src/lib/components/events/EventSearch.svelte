@@ -1,253 +1,462 @@
 <script lang="ts">
   import { eventsApi } from "$lib/api";
-  import type {
-    SearchFilters as SearchFiltersType,
-    Suggestion,
-    EventsListResponse,
-    Category,
-  } from "$lib/api";
+  import type { Event, Category, EventsListResponse } from "$lib/api";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Input } from "$lib/components/ui/input";
+  import { Button } from "$lib/components/ui/button";
+  import {
+    Search,
+    X,
+    ChevronDown,
+    Calendar,
+    MapPin,
+    DollarSign,
+  } from "lucide-svelte";
 
-  // Импортируем наши новые компоненты
-  import SearchInput from "../ui/SearchInput.svelte";
-  import SearchFiltersComponent from "../ui/SearchFiltersComponent.svelte";
-  import ActiveFilters from "../ui/ActiveFilters.svelte";
-
-  // Component props
   let {
-    onSearchResults,
-    initialFilters = {},
+    onResults,
     categories = [],
+    initialEvents = [],
   }: {
-    onSearchResults: (result: EventsListResponse) => void;
-    initialFilters?: Partial<SearchFiltersType>;
+    onResults: (events: Event[]) => void;
     categories?: Category[];
+    initialEvents?: Event[];
   } = $props();
 
-  // ===== STATE VARIABLES =====
-  let searchQuery = $state(initialFilters.search_text || "");
-  let suggestions = $state<Suggestion[]>([]);
-  let showSuggestions = $state(false);
-  let suggestionsLoading = $state(false);
-  let isLoading = $state(false);
-  let showFilters = $state(false);
-
-  // Filter state
-  let selectedCategories = $state<number[]>(initialFilters.category_ids || []);
-  let minPrice = $state<number | undefined>(initialFilters.min_price);
-  let maxPrice = $state<number | undefined>(initialFilters.max_price);
-  let dateFrom = $state(initialFilters.date_from || "");
-  let dateTo = $state(initialFilters.date_to || "");
-  let location = $state(initialFilters.location || "");
-
-  // Timers for debouncing
-  let suggestionTimer: ReturnType<typeof setTimeout>;
-  let searchTimer: ReturnType<typeof setTimeout>;
-
-  // ===== DERIVED STATE =====
-  const activeFiltersCount = $derived.by(() => {
-    let count = 0;
-    if (selectedCategories.length > 0) count++;
-    if (minPrice !== undefined || maxPrice !== undefined) count++;
-    if (dateFrom || dateTo) count++;
-    if (location) count++;
-    return count;
+  // Единое состояние поиска
+  let searchState = $state({
+    query: "",
+    showFilters: false,
+    loading: false,
+    filters: {
+      categoryIds: [] as number[],
+      priceMin: undefined as number | undefined,
+      priceMax: undefined as number | undefined,
+      dateFrom: "",
+      dateTo: "",
+      location: "",
+    },
   });
 
-  // ===== EVENT HANDLERS =====
-  async function handleInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    searchQuery = target.value;
+  // Подсказки (опционально)
+  let suggestions = $state<string[]>([]);
+  let showSuggestions = $state(false);
 
-    if (suggestionTimer) clearTimeout(suggestionTimer);
+  // Debounced поиск
+  let searchTimeout: ReturnType<typeof setTimeout>;
 
-    if (searchQuery.length < 2) {
+  // Проверяем есть ли активные фильтры
+  const hasActiveFilters = $derived(() => {
+    const f = searchState.filters;
+    return (
+      f.categoryIds.length > 0 ||
+      f.priceMin !== undefined ||
+      f.priceMax !== undefined ||
+      f.dateFrom ||
+      f.dateTo ||
+      f.location
+    );
+  });
+
+  // Основная функция поиска
+  async function performSearch() {
+    clearTimeout(searchTimeout);
+
+    searchTimeout = setTimeout(async () => {
+      // Если нет запроса и фильтров - показываем изначальные события
+      if (!searchState.query.trim() && !hasActiveFilters()) {
+        onResults(initialEvents);
+        return;
+      }
+
+      searchState.loading = true;
+
+      try {
+        const filters = {
+          search_text: searchState.query.trim() || undefined,
+          category_ids:
+            searchState.filters.categoryIds.length > 0
+              ? searchState.filters.categoryIds
+              : undefined,
+          min_price: searchState.filters.priceMin,
+          max_price: searchState.filters.priceMax,
+          date_from: searchState.filters.dateFrom || undefined,
+          date_to: searchState.filters.dateTo || undefined,
+          location: searchState.filters.location || undefined,
+          limit: 50,
+          offset: 0,
+        };
+
+        let result: EventsListResponse;
+
+        // Если есть текстовый запрос - используем search, иначе getAll
+        if (searchState.query.trim()) {
+          result = await eventsApi.search(filters);
+        } else {
+          result = await eventsApi.getAll(filters);
+        }
+
+        onResults(result.events);
+      } catch (error) {
+        console.error("Search failed:", error);
+        onResults([]);
+      } finally {
+        searchState.loading = false;
+      }
+    }, 300);
+  }
+
+  // Простой поиск подсказок
+  async function loadSuggestions() {
+    if (searchState.query.length < 2) {
       suggestions = [];
       showSuggestions = false;
       return;
     }
 
-    suggestionTimer = setTimeout(async () => {
-      try {
-        suggestionsLoading = true;
-        const response = await eventsApi.getSuggestions({
-          query: searchQuery,
-          max_results: 8,
-          fields: ["name", "location"],
-        });
-        suggestions = response.suggestions;
-        showSuggestions = true;
-      } catch (error) {
-        console.error("Failed to get suggestions:", error);
-        suggestions = [];
-      } finally {
-        suggestionsLoading = false;
-      }
-    }, 300);
+    try {
+      const result = await eventsApi.getSuggestions({
+        query: searchState.query,
+        max_results: 5,
+      });
+      suggestions = result.suggestions.map((s) => s.text);
+      showSuggestions = suggestions.length > 0;
+    } catch (error) {
+      suggestions = [];
+      showSuggestions = false;
+    }
   }
 
-  const selectSuggestion = (suggestion: Suggestion) => {
-    searchQuery = suggestion.text;
-    showSuggestions = false;
-    performSearch();
-  };
-
-  async function performSearch() {
-    if (searchTimer) clearTimeout(searchTimer);
-
-    searchTimer = setTimeout(async () => {
-      try {
-        isLoading = true;
-
-        const filters: SearchFiltersType = {
-          search_text: searchQuery || undefined,
-          category_ids:
-            selectedCategories.length > 0 ? selectedCategories : undefined,
-          min_price: minPrice,
-          max_price: maxPrice,
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-          location: location || undefined,
-          limit: 20,
-          offset: 0,
-          include_count: true,
-        };
-
-        const result = searchQuery
-          ? await eventsApi.search(filters)
-          : await eventsApi.getAll(filters);
-
-        onSearchResults(result);
-      } catch (error) {
-        console.error("Search failed:", error);
-      } finally {
-        isLoading = false;
-      }
-    }, 300);
-  }
-
-  function clearSearch() {
-    searchQuery = "";
-    suggestions = [];
-    showSuggestions = false;
+  // Обработчики событий
+  function handleQueryChange() {
+    loadSuggestions();
     performSearch();
   }
 
-  function clearAllFilters() {
-    searchQuery = "";
-    selectedCategories = [];
-    minPrice = undefined;
-    maxPrice = undefined;
-    dateFrom = "";
-    dateTo = "";
-    location = "";
-    suggestions = [];
+  function selectSuggestion(suggestion: string) {
+    searchState.query = suggestion;
     showSuggestions = false;
     performSearch();
   }
 
   function toggleCategory(categoryId: number) {
-    if (selectedCategories.includes(categoryId)) {
-      selectedCategories = selectedCategories.filter((id) => id !== categoryId);
+    const index = searchState.filters.categoryIds.indexOf(categoryId);
+    if (index > -1) {
+      searchState.filters.categoryIds.splice(index, 1);
     } else {
-      selectedCategories = [...selectedCategories, categoryId];
+      searchState.filters.categoryIds.push(categoryId);
     }
     performSearch();
   }
 
-  function removeCategory(categoryId: number) {
-    selectedCategories = selectedCategories.filter((id) => id !== categoryId);
+  function removeFilter(type: string, value?: any) {
+    switch (type) {
+      case "category":
+        searchState.filters.categoryIds =
+          searchState.filters.categoryIds.filter((id) => id !== value);
+        break;
+      case "price":
+        searchState.filters.priceMin = undefined;
+        searchState.filters.priceMax = undefined;
+        break;
+      case "date":
+        searchState.filters.dateFrom = "";
+        searchState.filters.dateTo = "";
+        break;
+      case "location":
+        searchState.filters.location = "";
+        break;
+    }
     performSearch();
   }
 
-  function clearPriceFilter() {
-    minPrice = undefined;
-    maxPrice = undefined;
-    performSearch();
+  function clearAll() {
+    searchState.query = "";
+    searchState.filters = {
+      categoryIds: [],
+      priceMin: undefined,
+      priceMax: undefined,
+      dateFrom: "",
+      dateTo: "",
+      location: "",
+    };
+    suggestions = [];
+    showSuggestions = false;
+    onResults(initialEvents);
   }
 
-  function clearDateFilter() {
-    dateFrom = "";
-    dateTo = "";
-    performSearch();
-  }
-
-  function clearLocationFilter() {
-    location = "";
-    performSearch();
-  }
-
-  function toggleFilters() {
-    showFilters = !showFilters;
-  }
-
-  // ===== REACTIVE EFFECTS =====
+  // Реактивный поиск при изменении фильтров
   $effect(() => {
-    if (minPrice !== undefined || maxPrice !== undefined) {
+    if (
+      searchState.filters.priceMin !== undefined ||
+      searchState.filters.priceMax !== undefined
+    ) {
       performSearch();
     }
   });
 
   $effect(() => {
-    if (dateFrom || dateTo) {
+    if (searchState.filters.dateFrom || searchState.filters.dateTo) {
       performSearch();
     }
   });
 
   $effect(() => {
-    if (location) {
+    if (searchState.filters.location) {
       performSearch();
     }
   });
 </script>
 
 <div class="w-full space-y-4">
-  <!-- Search Input Component -->
-  <SearchInput
-    bind:searchQuery
-    {suggestions}
-    bind:showSuggestions
-    {suggestionsLoading}
-    {activeFiltersCount}
-    bind:showFilters
-    onInput={handleInput}
-    onSelectSuggestion={selectSuggestion}
-    onSearch={performSearch}
-    onClear={clearSearch}
-    onToggleFilters={toggleFilters}
-  />
+  <!-- Основная строка поиска -->
+  <div class="relative">
+    <div class="relative">
+      <Search
+        class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"
+      />
 
-  <!-- Filters Panel -->
-  {#if showFilters}
-    <SearchFiltersComponent
-      {categories}
-      bind:selectedCategories
-      bind:minPrice
-      bind:maxPrice
-      bind:dateFrom
-      bind:dateTo
-      bind:location
-      onClearFilters={clearAllFilters}
-      onToggleCategory={toggleCategory}
-    />
+      <Input
+        type="text"
+        placeholder="Поиск событий..."
+        bind:value={searchState.query}
+        oninput={handleQueryChange}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            showSuggestions = false;
+            performSearch();
+          }
+          if (e.key === "Escape") {
+            showSuggestions = false;
+          }
+        }}
+        class="pl-10 pr-20"
+      />
+
+      <!-- Кнопки справа -->
+      <div
+        class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1"
+      >
+        {#if searchState.query}
+          <Button
+            variant="ghost"
+            size="sm"
+            onclick={() => {
+              searchState.query = "";
+              performSearch();
+            }}
+            class="h-6 w-6 p-0"
+          >
+            <X class="h-3 w-3" />
+          </Button>
+        {/if}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onclick={() => (searchState.showFilters = !searchState.showFilters)}
+          class="h-6 px-2"
+        >
+          <ChevronDown
+            class="h-3 w-3 {searchState.showFilters
+              ? 'rotate-180'
+              : ''} transition-transform"
+          />
+          {#if hasActiveFilters()}
+            <Badge variant="destructive" class="ml-1 h-4 w-4 p-0 text-xs">
+              {searchState.filters.categoryIds.length +
+                (searchState.filters.priceMin !== undefined ? 1 : 0) +
+                (searchState.filters.dateFrom ? 1 : 0) +
+                (searchState.filters.location ? 1 : 0)}
+            </Badge>
+          {/if}
+        </Button>
+      </div>
+    </div>
+
+    <!-- Подсказки -->
+    {#if showSuggestions && suggestions.length > 0}
+      <div
+        class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto"
+      >
+        {#each suggestions as suggestion}
+          <button
+            class="w-full text-left px-4 py-2 hover:bg-gray-50 border-b last:border-b-0"
+            onclick={() => selectSuggestion(suggestion)}
+          >
+            {suggestion}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Панель фильтров -->
+  {#if searchState.showFilters}
+    <div class="border rounded-lg p-4 space-y-4 bg-gray-50">
+      <div class="flex items-center justify-between">
+        <h3 class="font-medium">Фильтры</h3>
+        <Button variant="ghost" size="sm" onclick={clearAll}>
+          Очистить все
+        </Button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Категории -->
+        <div class="space-y-2">
+          <label for="categories" class="text-sm font-medium">Категории</label>
+          <div class="flex flex-wrap gap-2">
+            {#each categories as category}
+              <Badge
+                variant={searchState.filters.categoryIds.includes(category.id)
+                  ? "default"
+                  : "outline"}
+                class="cursor-pointer"
+                onclick={() => toggleCategory(category.id)}
+              >
+                {category.name}
+              </Badge>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Цена -->
+        <div class="space-y-2">
+          <label
+            for="price-min"
+            class="text-sm font-medium flex items-center gap-1"
+          >
+            <DollarSign class="h-3 w-3" />
+            Цена
+          </label>
+          <div class="flex gap-2">
+            <Input
+              id="price-min"
+              type="number"
+              placeholder="От"
+              bind:value={searchState.filters.priceMin}
+              class="text-sm"
+            />
+            <Input
+              id="price-max"
+              type="number"
+              placeholder="До"
+              bind:value={searchState.filters.priceMax}
+              class="text-sm"
+            />
+          </div>
+        </div>
+
+        <!-- Даты -->
+        <div class="space-y-2">
+          <label
+            for="date-from"
+            class="text-sm font-medium flex items-center gap-1"
+          >
+            <Calendar class="h-3 w-3" />
+            Период
+          </label>
+          <div class="flex gap-2">
+            <Input
+              id="date-from"
+              type="date"
+              bind:value={searchState.filters.dateFrom}
+              class="text-sm"
+            />
+            <Input
+              id="date-to"
+              type="date"
+              bind:value={searchState.filters.dateTo}
+              class="text-sm"
+            />
+          </div>
+        </div>
+
+        <!-- Место -->
+        <div class="space-y-2">
+          <label
+            for="location"
+            class="text-sm font-medium flex items-center gap-1"
+          >
+            <MapPin class="h-3 w-3" />
+            Место
+          </label>
+          <Input
+            id="location"
+            type="text"
+            placeholder="Город или адрес"
+            bind:value={searchState.filters.location}
+            class="text-sm"
+          />
+        </div>
+      </div>
+    </div>
   {/if}
 
-  <!-- Active Filters -->
-  <ActiveFilters
-    {categories}
-    {selectedCategories}
-    {minPrice}
-    {maxPrice}
-    {dateFrom}
-    {dateTo}
-    {location}
-    onRemoveCategory={removeCategory}
-    onClearPriceFilter={clearPriceFilter}
-    onClearDateFilter={clearDateFilter}
-    onClearLocationFilter={clearLocationFilter}
-  />
+  <!-- Активные фильтры -->
+  {#if hasActiveFilters()}
+    <div class="flex flex-wrap gap-2">
+      <!-- Категории -->
+      {#each searchState.filters.categoryIds as categoryId}
+        {@const category = categories.find((c) => c.id === categoryId)}
+        {#if category}
+          <Badge variant="secondary" class="flex items-center gap-1">
+            {category.name}
+            <button
+              onclick={() => removeFilter("category", categoryId)}
+              class="hover:text-red-600"
+            >
+              <X class="h-3 w-3" />
+            </button>
+          </Badge>
+        {/if}
+      {/each}
 
-  <!-- Loading Indicator -->
-  {#if isLoading}
+      <!-- Цена -->
+      {#if searchState.filters.priceMin !== undefined || searchState.filters.priceMax !== undefined}
+        <Badge variant="secondary" class="flex items-center gap-1">
+          Цена: {searchState.filters.priceMin || 0} - {searchState.filters
+            .priceMax || "∞"}
+          <button
+            onclick={() => removeFilter("price")}
+            class="hover:text-red-600"
+          >
+            <X class="h-3 w-3" />
+          </button>
+        </Badge>
+      {/if}
+
+      <!-- Период -->
+      {#if searchState.filters.dateFrom || searchState.filters.dateTo}
+        <Badge variant="secondary" class="flex items-center gap-1">
+          Период: {searchState.filters.dateFrom || "..."} - {searchState.filters
+            .dateTo || "..."}
+          <button
+            onclick={() => removeFilter("date")}
+            class="hover:text-red-600"
+          >
+            <X class="h-3 w-3" />
+          </button>
+        </Badge>
+      {/if}
+
+      <!-- Место -->
+      {#if searchState.filters.location}
+        <Badge variant="secondary" class="flex items-center gap-1">
+          Место: {searchState.filters.location}
+          <button
+            onclick={() => removeFilter("location")}
+            class="hover:text-red-600"
+          >
+            <X class="h-3 w-3" />
+          </button>
+        </Badge>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Индикатор загрузки -->
+  {#if searchState.loading}
     <div class="flex items-center justify-center py-4">
       <div
         class="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full"

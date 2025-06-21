@@ -2,6 +2,27 @@
 
 @import "tw-animate-css";
 
+@font-face {
+  font-family: "Unbounded";
+  src: url("/fonts/Unbounded-VariableFont_wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Onest";
+  src: url("/fonts/Onest-VariableFont_wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-unbounded: "Unbounded", sans-serif;
+  --font-onest: "Onest", sans-serif;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -116,7 +137,6 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-onest;
   }
 }
-
