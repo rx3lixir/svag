@@ -17,17 +17,21 @@
     Calendar,
     MapPin,
     DollarSign,
-    Clock,
+    Lightbulb,
   } from "lucide-svelte";
 
   let {
     onResults,
     categories = [],
     initialEvents = [],
+    onPaginationChange,
+    searchAPI = $bindable(),
   }: {
     onResults: (events: Event[], pagination?: any) => void;
+    onPaginationChange?: (pagination: any) => void;
     categories?: Category[];
     initialEvents?: Event[];
+    searchAPI?: any;
   } = $props();
 
   // Глобальное состояние
@@ -43,19 +47,18 @@
   let dateTo = $state("");
   let locationFilter = $state("");
 
-  // Автокомплит
+  // Автокомплит - теперь отдельно от поиска
   let suggestions = $state<Suggestion[]>([]);
   let showSuggestions = $state(false);
   let selectedSuggestionIndex = $state(-1);
 
   // Пагинация
   let currentPage = $state(1);
-  let limit = $state(12);
+  let limit = $state(12); // Увеличиваем лимит до нормального значения
   let totalPages = $state(1);
   let totalCount = $state(0);
 
   // Таймауты
-  let searchTimeout: ReturnType<typeof setTimeout>;
   let suggestionsTimeout: ReturnType<typeof setTimeout>;
   let searchInputElement: any;
 
@@ -71,79 +74,89 @@
     );
   });
 
-  // Основная функция поиска
+  // Проверяем есть ли активный поиск (запрос или фильтры)
+  const hasActiveSearch = $derived(() => {
+    return searchQuery.trim() || hasActiveFilters();
+  });
+
+  // Основная функция поиска - вызывается только при явном действии пользователя
   const performSearch = async (page: number = 1) => {
-    // Если нет запроса и фильтров на первой странице - показываем изначальные события
-    if (page === 1 && !searchQuery.trim() && !hasActiveFilters()) {
+    // Если нет запроса и фильтров - показываем изначальные события
+    if (!hasActiveSearch()) {
       onResults(initialEvents);
       currentPage = 1;
       totalPages = 1;
       totalCount = initialEvents.length;
+      onPaginationChange?.({
+        total_count: initialEvents.length,
+        limit: limit,
+        offset: 0,
+        has_more: 0,
+      });
       return;
     }
 
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(async () => {
-      loading = true;
+    loading = true;
 
-      try {
-        const offset = (page - 1) * limit;
+    try {
+      const offset = (page - 1) * limit;
 
-        // Формируем параметры поиска
-        const searchParams: SearchFilters = {
+      // Формируем параметры поиска
+      const searchParams: SearchFilters = {
+        limit,
+        offset,
+        include_count: true,
+      };
+
+      // Добавляем параметры только если они есть
+      if (searchQuery.trim()) searchParams.search_text = searchQuery.trim();
+      if (selectedCategories.length > 0)
+        searchParams.category_ids = selectedCategories;
+      if (priceMin !== undefined) searchParams.min_price = priceMin;
+      if (priceMax !== undefined) searchParams.max_price = priceMax;
+      if (dateFrom) searchParams.date_from = dateFrom;
+      if (dateTo) searchParams.date_to = dateTo;
+      if (locationFilter) searchParams.location = locationFilter;
+
+      let result: EventsListResponse;
+
+      // Используем search для текстовых запросов, getAll для остальных
+      if (searchQuery.trim()) {
+        result = await eventsApi.search(searchParams);
+      } else {
+        // Преобразуем для getAll API
+        const getParams = {
           limit,
           offset,
-          include_count: true,
+          category_id: selectedCategories[0], // getAll принимает только одну категорию
+          price_min: priceMin,
+          price_max: priceMax,
+          date_from: dateFrom,
+          date_to: dateTo,
+          location: locationFilter,
         };
-
-        // Добавляем параметры только если они есть
-        if (searchQuery.trim()) searchParams.search_text = searchQuery.trim();
-        if (selectedCategories.length > 0)
-          searchParams.category_ids = selectedCategories;
-        if (priceMin !== undefined) searchParams.min_price = priceMin;
-        if (priceMax !== undefined) searchParams.max_price = priceMax;
-        if (dateFrom) searchParams.date_from = dateFrom;
-        if (dateTo) searchParams.date_to = dateTo;
-        if (locationFilter) searchParams.location = locationFilter;
-
-        let result: EventsListResponse;
-
-        // Используем search для текстовых запросов, getAll для остальных
-        if (searchQuery.trim()) {
-          result = await eventsApi.search(searchParams);
-        } else {
-          // Преобразуем для getAll API
-          const getParams = {
-            limit,
-            offset,
-            category_id: selectedCategories[0], // getAll принимает только одну категорию
-            price_min: priceMin,
-            price_max: priceMax,
-            date_from: dateFrom,
-            date_to: dateTo,
-            location: locationFilter,
-          };
-          result = await eventsApi.getAll(getParams);
-        }
-
-        onResults(result.events, result.pagination);
-
-        // Обновляем пагинацию
-        if (result.pagination) {
-          totalCount = result.pagination.total_count;
-          totalPages = Math.ceil(totalCount / limit);
-          currentPage = page;
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-        onResults([]);
-      } finally {
-        loading = false;
+        result = await eventsApi.getAll(getParams);
       }
-    }, 300);
+
+      onResults(result.events, result.pagination);
+
+      // Обновляем пагинацию
+      if (result.pagination) {
+        totalCount = result.pagination.total_count;
+        totalPages = Math.ceil(totalCount / limit);
+        currentPage = page;
+        onPaginationChange?.(result.pagination);
+      }
+    } catch (error) {
+      console.error("Search failed:", error);
+      onResults([]);
+      onPaginationChange?.(null);
+    } finally {
+      loading = false;
+    }
   };
 
-  // Загрузка подсказок
+  // Загрузка подсказок - НЕ влияет на результаты поиска
   const loadSuggestions = async () => {
     if (searchQuery.length < 2) {
       suggestions = [];
@@ -172,22 +185,33 @@
     }, 150);
   };
 
-  // Обработчики на изменение текста запроса в input
+  // Обработчик изменения текста - ТОЛЬКО загружает подсказки
   const handleQueryChange = () => {
     loadSuggestions();
-    performSearch(1);
+    // НЕ вызываем performSearch автоматически!
   };
 
+  // Выбор подсказки
   const selectSuggestion = (suggestion: Suggestion) => {
     searchQuery = suggestion.text;
     showSuggestions = false;
     selectedSuggestionIndex = -1;
     searchInputElement.blur();
+    // Выполняем поиск только после выбора подсказки
     performSearch(1);
   };
 
+  // Обработка клавиш
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
+    if (!showSuggestions || suggestions.length === 0) {
+      // Если нет подсказок, но нажали Enter - выполняем поиск
+      if (event.key === "Enter") {
+        event.preventDefault();
+        showSuggestions = false;
+        performSearch(1);
+      }
+      return;
+    }
 
     switch (event.key) {
       case "ArrowDown":
@@ -217,6 +241,7 @@
     }
   };
 
+  // Переключение категории
   const toggleCategory = (categoryId: number) => {
     const index = selectedCategories.indexOf(categoryId);
     if (index > -1) {
@@ -224,9 +249,11 @@
     } else {
       selectedCategories.push(categoryId);
     }
+    // Выполняем поиск сразу после изменения категории
     performSearch(1);
   };
 
+  // Очистка всех фильтров
   const clearAll = () => {
     searchQuery = "";
     selectedCategories = [];
@@ -239,58 +266,32 @@
     showSuggestions = false;
     selectedSuggestionIndex = -1;
     currentPage = 1;
+    // Возвращаемся к начальным событиям
     onResults(initialEvents);
+    onPaginationChange?.({
+      total_count: initialEvents.length,
+      limit: limit,
+      offset: 0,
+      has_more: 0,
+    });
   };
 
+  // Обработка изменения страницы
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return;
     performSearch(newPage);
   };
 
-  // Реактивные эффекты для фильтров
-  $effect(() => {
-    if (priceMin !== undefined || priceMax !== undefined) {
-      performSearch(1);
-    }
-  });
-
-  $effect(() => {
-    if (dateFrom || dateTo) {
-      performSearch(1);
-    }
-  });
-
-  $effect(() => {
-    if (locationFilter) {
-      performSearch(1);
-    }
-  });
-
-  // Скрытие подсказок при клике вне элемента
-  const handleDocumentClick = (event: MouseEvent) => {
-    const target = event.target as Element;
-    if (!target.closest(".search-container")) {
-      showSuggestions = false;
-      selectedSuggestionIndex = -1;
-    }
+  // Экспортируем функцию для внешнего управления пагинацией
+  const goToPage = (page: number) => {
+    handlePageChange(page);
   };
 
-  $effect(() => {
-    document.addEventListener("click", handleDocumentClick);
-    return () => {
-      document.removeEventListener("click", handleDocumentClick);
-    };
-  });
-
-  const getSuggestionIcon = (type: string) => {
-    switch (type) {
-      case "event":
-        return Clock;
-      case "location":
-        return MapPin;
-      default:
-        return Search;
-    }
+  // Делаем функцию доступной родительскому компоненту
+  searchAPI = {
+    goToPage,
+    getCurrentPage: () => currentPage,
+    getTotalPages: () => totalPages,
   };
 </script>
 
@@ -305,7 +306,7 @@
       <Input
         bind:this={searchInputElement}
         type="text"
-        placeholder="Поиск событий..."
+        placeholder="Поиск событий... (нажмите Enter для поиска)"
         bind:value={searchQuery}
         oninput={handleQueryChange}
         onkeydown={handleKeyDown}
@@ -365,7 +366,6 @@
         class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto"
       >
         {#each suggestions as suggestion, index}
-          {@const Icon = getSuggestionIcon(suggestion.type)}
           <button
             class="w-full text-left px-4 py-3 hover:bg-gray-50 border-b last:border-b-0 flex items-center gap-3 {index ===
             selectedSuggestionIndex
@@ -373,7 +373,7 @@
               : ''}"
             onclick={() => selectSuggestion(suggestion)}
           >
-            <Icon class="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <Lightbulb class="h-4 w-4 text-gray-400 flex-shrink-0" />
             <div class="flex-1">
               <div class="font-medium text-sm">{suggestion.text}</div>
               {#if suggestion.category || suggestion.type}
@@ -570,43 +570,10 @@
     </div>
   {/if}
 
-  <!-- Информация о результатах и пагинация -->
-  {#if totalCount > 0}
-    <div class="flex items-center justify-between text-sm text-gray-600">
-      <div>
-        Показано {(currentPage - 1) * limit + 1}-{Math.min(
-          currentPage * limit,
-          totalCount,
-        )}
-        из {totalCount} событий
-      </div>
-
-      <!-- Простая пагинация -->
-      {#if totalPages > 1}
-        <div class="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onclick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-          >
-            Назад
-          </Button>
-
-          <span class="px-2">
-            {currentPage} из {totalPages}
-          </span>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onclick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-          >
-            Вперед
-          </Button>
-        </div>
-      {/if}
+  <!-- Информация о результатах -->
+  {#if hasActiveSearch() && totalCount > 0}
+    <div class="text-sm text-gray-600">
+      Найдено событий: {totalCount}
     </div>
   {/if}
 </div>

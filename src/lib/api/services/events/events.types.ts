@@ -29,6 +29,7 @@ export interface EventFilters extends PaginationParams {
   price_min?: number;
   price_max?: number;
   search?: string;
+  include_count?: boolean;
 }
 
 export interface SearchFilters extends PaginationParams {
