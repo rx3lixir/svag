@@ -1,4 +1,8 @@
-import type { BaseEntity } from "$lib/api/types/common";
+import type {
+  BaseEntity,
+  PaginationMeta,
+  PaginationParams,
+} from "$lib/api/types/common";
 
 export interface Event extends BaseEntity {
   name: string;
@@ -17,14 +21,17 @@ export interface EventsListResponse {
   pagination?: PaginationMeta;
 }
 
-export interface PaginationMeta {
-  total_count: number;
-  limit: number;
-  offset: number;
-  has_more: boolean;
+export interface EventFilters extends PaginationParams {
+  category_id?: number;
+  location?: string;
+  date_from?: string;
+  date_to?: string;
+  price_min?: number;
+  price_max?: number;
+  search?: string;
 }
 
-export interface SearchFilters {
+export interface SearchFilters extends PaginationParams {
   search_text?: string;
   category_ids?: number[];
   min_price?: number;
@@ -33,15 +40,7 @@ export interface SearchFilters {
   date_to?: string;
   location?: string;
   source?: string;
-  limit?: number;
-  offset?: number;
   include_count?: boolean;
-}
-
-export interface SuggesionRequest {
-  query: string;
-  max_results?: number;
-  fields?: string[];
 }
 
 export interface Suggestion {
@@ -52,20 +51,16 @@ export interface Suggestion {
   event_id?: number;
 }
 
+export interface SuggesionRequest {
+  query: string;
+  max_results?: number;
+  fields?: string[];
+}
+
 export interface SuggestionsResponse {
   suggestions: Suggestion[];
   query: string;
   total: number;
-}
-
-export interface EventFilters {
-  category_id?: number;
-  location?: string;
-  date_from?: string;
-  date_to?: string;
-  price_min?: number;
-  price_max?: number;
-  search?: string;
 }
 
 export interface Image {

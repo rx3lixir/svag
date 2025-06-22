@@ -15,11 +15,17 @@ export interface ApiResponse<T> {
 }
 
 export interface PaginationParams {
-  page?: number;
   limit?: number;
+  offset?: number;
   sort?: string;
-  offset?: string;
   order?: "asc" | "desc";
+}
+
+export interface PaginationMeta {
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: number;
 }
 
 export interface BaseEntity {

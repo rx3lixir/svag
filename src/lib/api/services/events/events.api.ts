@@ -4,7 +4,6 @@ import type {
   Event,
   EventFilters,
   EventsListResponse,
-  PaginationMeta,
   SearchFilters,
   SuggesionRequest,
   SuggestionsResponse,
@@ -13,10 +12,8 @@ import type {
 const EVENTS_ENDPOINT = "/event/api/v1/events";
 
 export const eventsApi = {
-  // Получить все события - теперь возвращает полный ответ
-  async getAll(
-    filters?: EventFilters & PaginationMeta,
-  ): Promise<EventsListResponse> {
+  // Получить все события
+  async getAll(filters?: EventFilters): Promise<EventsListResponse> {
     return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, filters);
   },
 
@@ -28,7 +25,7 @@ export const eventsApi = {
   // Получить события по категории
   async getByCategory(
     categoryId: number,
-    filters?: EventFilters & PaginationParams,
+    filters?: EventFilters,
   ): Promise<EventsListResponse> {
     return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, {
       ...filters,
@@ -36,6 +33,7 @@ export const eventsApi = {
     });
   },
 
+  // Поиск событий
   async search(filters: SearchFilters): Promise<EventsListResponse> {
     return apiClient.post<EventsListResponse>(
       `${EVENTS_ENDPOINT}/search`,
@@ -43,10 +41,10 @@ export const eventsApi = {
     );
   },
 
+  // Получить подсказки
   async getSuggestions(
     request: SuggesionRequest,
   ): Promise<SuggestionsResponse> {
-    // Исправил опечатку: suggesions -> suggestions
     return apiClient.get<SuggestionsResponse>(
       `${EVENTS_ENDPOINT}/suggestions`,
       {
@@ -58,9 +56,7 @@ export const eventsApi = {
   },
 
   // Вспомогательные методы для удобства
-  async getAllEvents(
-    filters?: EventFilters & PaginationMeta,
-  ): Promise<Event[]> {
+  async getAllEvents(filters?: EventFilters): Promise<Event[]> {
     const response = await this.getAll(filters);
     return response.events;
   },

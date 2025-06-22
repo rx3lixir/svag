@@ -5,6 +5,7 @@
     Category,
     EventsListResponse,
     Suggestion,
+    SearchFilters,
   } from "$lib/api";
   import { Badge } from "$lib/components/ui/badge";
   import { Input } from "$lib/components/ui/input";
@@ -29,173 +30,164 @@
     initialEvents?: Event[];
   } = $props();
 
-  // Состояние поиска и фильтров
-  let searchState = $state({
-    query: "",
-    showSuggestions: false,
-    showFilters: false,
-    loading: false,
-    filters: {
-      categoryIds: [] as number[],
-      priceMin: undefined as number | undefined,
-      priceMax: undefined as number | undefined,
-      dateFrom: "",
-      dateTo: "",
-      location: "",
-    },
-  });
+  // Глобальное состояние
+  let searchQuery = $state("");
+  let showFilters = $state(false);
+  let loading = $state(false);
 
-  // Состояние пагинации
-  let paginationState = $state({
-    currentPage: 1,
-    limit: 3, // Для тестирования
-    totalPages: 1,
-    hasMore: false,
-    totalCount: 0,
-  });
+  // Фильтры
+  let selectedCategories = $state<number[]>([]);
+  let priceMin = $state<number | undefined>();
+  let priceMax = $state<number | undefined>();
+  let dateFrom = $state("");
+  let dateTo = $state("");
+  let locationFilter = $state("");
 
   // Автокомплит
   let suggestions = $state<Suggestion[]>([]);
+  let showSuggestions = $state(false);
   let selectedSuggestionIndex = $state(-1);
-  let searchInputElement: HTMLInputElement;
 
-  // Debounce таймеры
+  // Пагинация
+  let currentPage = $state(1);
+  let limit = $state(12);
+  let totalPages = $state(1);
+  let totalCount = $state(0);
+
+  // Таймауты
   let searchTimeout: ReturnType<typeof setTimeout>;
   let suggestionsTimeout: ReturnType<typeof setTimeout>;
+  let searchInputElement: any;
 
   // Проверяем есть ли активные фильтры
   const hasActiveFilters = $derived(() => {
-    const f = searchState.filters;
     return (
-      f.categoryIds.length > 0 ||
-      f.priceMin !== undefined ||
-      f.priceMax !== undefined ||
-      f.dateFrom ||
-      f.dateTo ||
-      f.location
+      selectedCategories.length > 0 ||
+      priceMin !== undefined ||
+      priceMax !== undefined ||
+      dateFrom ||
+      dateTo ||
+      locationFilter
     );
   });
 
   // Основная функция поиска
-  async function performSearch(
-    page: number = 1,
-    updatePagination: boolean = true,
-  ) {
+  const performSearch = async (page: number = 1) => {
+    // Если нет запроса и фильтров на первой странице - показываем изначальные события
+    if (page === 1 && !searchQuery.trim() && !hasActiveFilters()) {
+      onResults(initialEvents);
+      currentPage = 1;
+      totalPages = 1;
+      totalCount = initialEvents.length;
+      return;
+    }
+
     clearTimeout(searchTimeout);
-
     searchTimeout = setTimeout(async () => {
-      // Если нет запроса и фильтров на первой странице - показываем изначальные события
-      if (page === 1 && !searchState.query.trim() && !hasActiveFilters()) {
-        onResults(initialEvents);
-        if (updatePagination) {
-          paginationState.currentPage = 1;
-          paginationState.totalPages = 1;
-          paginationState.hasMore = false;
-          paginationState.totalCount = initialEvents.length;
-        }
-        return;
-      }
-
-      searchState.loading = true;
+      loading = true;
 
       try {
-        const offset = (page - 1) * paginationState.limit;
+        const offset = (page - 1) * limit;
 
-        const filters = {
-          search_text: searchState.query.trim() || undefined,
-          category_ids:
-            searchState.filters.categoryIds.length > 0
-              ? searchState.filters.categoryIds
-              : undefined,
-          min_price: searchState.filters.priceMin,
-          max_price: searchState.filters.priceMax,
-          date_from: searchState.filters.dateFrom || undefined,
-          date_to: searchState.filters.dateTo || undefined,
-          location: searchState.filters.location || undefined,
-          limit: paginationState.limit,
-          offset: offset,
-          include_count: true, // Всегда запрашиваем общее количество
+        // Формируем параметры поиска
+        const searchParams: SearchFilters = {
+          limit,
+          offset,
+          include_count: true,
         };
+
+        // Добавляем параметры только если они есть
+        if (searchQuery.trim()) searchParams.search_text = searchQuery.trim();
+        if (selectedCategories.length > 0)
+          searchParams.category_ids = selectedCategories;
+        if (priceMin !== undefined) searchParams.min_price = priceMin;
+        if (priceMax !== undefined) searchParams.max_price = priceMax;
+        if (dateFrom) searchParams.date_from = dateFrom;
+        if (dateTo) searchParams.date_to = dateTo;
+        if (locationFilter) searchParams.location = locationFilter;
 
         let result: EventsListResponse;
 
-        // Используем search для текстовых запросов, getAll для фильтров
-        if (searchState.query.trim()) {
-          result = await eventsApi.search(filters);
+        // Используем search для текстовых запросов, getAll для остальных
+        if (searchQuery.trim()) {
+          result = await eventsApi.search(searchParams);
         } else {
-          result = await eventsApi.getAll(filters);
+          // Преобразуем для getAll API
+          const getParams = {
+            limit,
+            offset,
+            category_id: selectedCategories[0], // getAll принимает только одну категорию
+            price_min: priceMin,
+            price_max: priceMax,
+            date_from: dateFrom,
+            date_to: dateTo,
+            location: locationFilter,
+          };
+          result = await eventsApi.getAll(getParams);
         }
 
         onResults(result.events, result.pagination);
 
         // Обновляем пагинацию
-        if (updatePagination && result.pagination) {
-          paginationState.totalCount = Number(result.pagination.total_count);
-          paginationState.totalPages = Math.ceil(
-            paginationState.totalCount / paginationState.limit,
-          );
-          paginationState.hasMore = result.pagination.has_more;
-          paginationState.currentPage = page;
+        if (result.pagination) {
+          totalCount = result.pagination.total_count;
+          totalPages = Math.ceil(totalCount / limit);
+          currentPage = page;
         }
       } catch (error) {
         console.error("Search failed:", error);
         onResults([]);
       } finally {
-        searchState.loading = false;
+        loading = false;
       }
     }, 300);
-  }
+  };
 
   // Загрузка подсказок
-  async function loadSuggestions() {
-    if (searchState.query.length < 2) {
+  const loadSuggestions = async () => {
+    if (searchQuery.length < 2) {
       suggestions = [];
-      searchState.showSuggestions = false;
+      showSuggestions = false;
       selectedSuggestionIndex = -1;
       return;
     }
 
     clearTimeout(suggestionsTimeout);
-
     suggestionsTimeout = setTimeout(async () => {
       try {
         const result = await eventsApi.getSuggestions({
-          query: searchState.query,
+          query: searchQuery,
           max_results: 8,
           fields: ["name", "location"],
         });
 
         suggestions = result.suggestions;
-        searchState.showSuggestions = suggestions.length > 0;
+        showSuggestions = suggestions.length > 0;
         selectedSuggestionIndex = -1;
       } catch (error) {
         console.error("Failed to load suggestions:", error);
         suggestions = [];
-        searchState.showSuggestions = false;
+        showSuggestions = false;
       }
-    }, 150); // Быстрее для автокомплита
-  }
+    }, 150);
+  };
 
-  // Обработчики событий
-  function handleQueryChange() {
+  // Обработчики на изменение текста запроса в input
+  const handleQueryChange = () => {
     loadSuggestions();
-    // Сброс на первую страницу при изменении запроса
-    performSearch(1, true);
-  }
+    performSearch(1);
+  };
 
-  function selectSuggestion(suggestion: Suggestion) {
-    searchState.query = suggestion.text;
-    searchState.showSuggestions = false;
+  const selectSuggestion = (suggestion: Suggestion) => {
+    searchQuery = suggestion.text;
+    showSuggestions = false;
     selectedSuggestionIndex = -1;
     searchInputElement.blur();
-    performSearch(1, true);
-  }
+    performSearch(1);
+  };
 
-  // Навигация по подсказкам с клавиатуры
-  function handleKeyDown(event: KeyboardEvent) {
-    if (!searchState.showSuggestions || suggestions.length === 0) {
-      return;
-    }
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
 
     switch (event.key) {
       case "ArrowDown":
@@ -214,103 +206,75 @@
         if (selectedSuggestionIndex >= 0) {
           selectSuggestion(suggestions[selectedSuggestionIndex]);
         } else {
-          searchState.showSuggestions = false;
-          performSearch(1, true);
+          showSuggestions = false;
+          performSearch(1);
         }
         break;
       case "Escape":
-        searchState.showSuggestions = false;
+        showSuggestions = false;
         selectedSuggestionIndex = -1;
         break;
     }
-  }
+  };
 
-  function toggleCategory(categoryId: number) {
-    const index = searchState.filters.categoryIds.indexOf(categoryId);
+  const toggleCategory = (categoryId: number) => {
+    const index = selectedCategories.indexOf(categoryId);
     if (index > -1) {
-      searchState.filters.categoryIds.splice(index, 1);
+      selectedCategories.splice(index, 1);
     } else {
-      searchState.filters.categoryIds.push(categoryId);
+      selectedCategories.push(categoryId);
     }
-    performSearch(1, true); // Сброс на первую страницу
-  }
+    performSearch(1);
+  };
 
-  function removeFilter(type: string, value?: any) {
-    switch (type) {
-      case "category":
-        searchState.filters.categoryIds =
-          searchState.filters.categoryIds.filter((id) => id !== value);
-        break;
-      case "price":
-        searchState.filters.priceMin = undefined;
-        searchState.filters.priceMax = undefined;
-        break;
-      case "date":
-        searchState.filters.dateFrom = "";
-        searchState.filters.dateTo = "";
-        break;
-      case "location":
-        searchState.filters.location = "";
-        break;
-    }
-    performSearch(1, true); // Сброс на первую страницу
-  }
-
-  function clearAll() {
-    searchState.query = "";
-    searchState.filters = {
-      categoryIds: [],
-      priceMin: undefined,
-      priceMax: undefined,
-      dateFrom: "",
-      dateTo: "",
-      location: "",
-    };
+  const clearAll = () => {
+    searchQuery = "";
+    selectedCategories = [];
+    priceMin = undefined;
+    priceMax = undefined;
+    dateFrom = "";
+    dateTo = "";
+    locationFilter = "";
     suggestions = [];
-    searchState.showSuggestions = false;
+    showSuggestions = false;
     selectedSuggestionIndex = -1;
-    paginationState.currentPage = 1;
+    currentPage = 1;
     onResults(initialEvents);
-  }
+  };
 
-  // Функция для смены страницы
-  function handlePageChange(newPage: number) {
-    if (newPage < 1 || newPage > paginationState.totalPages) return;
-    performSearch(newPage, true);
-  }
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    performSearch(newPage);
+  };
 
-  // Реактивный поиск при изменении фильтров
+  // Реактивные эффекты для фильтров
   $effect(() => {
-    if (
-      searchState.filters.priceMin !== undefined ||
-      searchState.filters.priceMax !== undefined
-    ) {
-      performSearch(1, true);
+    if (priceMin !== undefined || priceMax !== undefined) {
+      performSearch(1);
     }
   });
 
   $effect(() => {
-    if (searchState.filters.dateFrom || searchState.filters.dateTo) {
-      performSearch(1, true);
+    if (dateFrom || dateTo) {
+      performSearch(1);
     }
   });
 
   $effect(() => {
-    if (searchState.filters.location) {
-      performSearch(1, true);
+    if (locationFilter) {
+      performSearch(1);
     }
   });
 
   // Скрытие подсказок при клике вне элемента
-  function handleDocumentClick(event: MouseEvent) {
+  const handleDocumentClick = (event: MouseEvent) => {
     const target = event.target as Element;
     if (!target.closest(".search-container")) {
-      searchState.showSuggestions = false;
+      showSuggestions = false;
       selectedSuggestionIndex = -1;
     }
-  }
+  };
 
-  // Добавляем и убираем обработчик при монтировании/размонтировании
   $effect(() => {
     document.addEventListener("click", handleDocumentClick);
     return () => {
@@ -318,8 +282,7 @@
     };
   });
 
-  // Функция для получения иконки по типу подсказки
-  function getSuggestionIcon(type: string) {
+  const getSuggestionIcon = (type: string) => {
     switch (type) {
       case "event":
         return Clock;
@@ -328,7 +291,7 @@
       default:
         return Search;
     }
-  }
+  };
 </script>
 
 <div class="w-full space-y-4">
@@ -343,12 +306,12 @@
         bind:this={searchInputElement}
         type="text"
         placeholder="Поиск событий..."
-        bind:value={searchState.query}
+        bind:value={searchQuery}
         oninput={handleQueryChange}
         onkeydown={handleKeyDown}
         onfocus={() => {
           if (suggestions.length > 0) {
-            searchState.showSuggestions = true;
+            showSuggestions = true;
           }
         }}
         class="pl-10 pr-20"
@@ -358,14 +321,14 @@
       <div
         class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1"
       >
-        {#if searchState.query}
+        {#if searchQuery}
           <Button
             variant="ghost"
             size="sm"
             onclick={() => {
-              searchState.query = "";
-              searchState.showSuggestions = false;
-              performSearch(1, true);
+              searchQuery = "";
+              showSuggestions = false;
+              performSearch(1);
             }}
             class="h-6 w-6 p-0"
           >
@@ -376,20 +339,20 @@
         <Button
           variant="ghost"
           size="sm"
-          onclick={() => (searchState.showFilters = !searchState.showFilters)}
+          onclick={() => (showFilters = !showFilters)}
           class="h-6 px-2"
         >
           <ChevronDown
-            class="h-3 w-3 {searchState.showFilters
+            class="h-3 w-3 {showFilters
               ? 'rotate-180'
               : ''} transition-transform"
           />
           {#if hasActiveFilters()}
-            <Badge variant="destructive" class="ml-1 h-4 w-4 p-0 text-xs">
-              {searchState.filters.categoryIds.length +
-                (searchState.filters.priceMin !== undefined ? 1 : 0) +
-                (searchState.filters.dateFrom ? 1 : 0) +
-                (searchState.filters.location ? 1 : 0)}
+            <Badge variant="secondary" class="ml-1 h-4 w-4 p-0 text-xs">
+              {selectedCategories.length +
+                (priceMin !== undefined ? 1 : 0) +
+                (dateFrom ? 1 : 0) +
+                (locationFilter ? 1 : 0)}
             </Badge>
           {/if}
         </Button>
@@ -397,7 +360,7 @@
     </div>
 
     <!-- Подсказки автокомплита -->
-    {#if searchState.showSuggestions && suggestions.length > 0}
+    {#if showSuggestions && suggestions.length > 0}
       <div
         class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto"
       >
@@ -431,7 +394,7 @@
   </div>
 
   <!-- Панель фильтров -->
-  {#if searchState.showFilters}
+  {#if showFilters}
     <div class="border rounded-lg p-4 space-y-4 bg-gray-50">
       <div class="flex items-center justify-between">
         <h3 class="font-medium">Фильтры</h3>
@@ -443,11 +406,11 @@
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <!-- Категории -->
         <div class="space-y-2">
-          <label for="categories" class="text-sm font-medium">Категории</label>
+          <div class="text-sm font-medium">Категории</div>
           <div class="flex flex-wrap gap-2">
             {#each categories as category}
               <Badge
-                variant={searchState.filters.categoryIds.includes(category.id)
+                variant={selectedCategories.includes(category.id)
                   ? "default"
                   : "outline"}
                 class="cursor-pointer"
@@ -461,52 +424,46 @@
 
         <!-- Цена -->
         <div class="space-y-2">
-          <label
-            for="price-min"
-            class="text-sm font-medium flex items-center gap-1"
-          >
+          <div class="text-sm font-medium flex items-center gap-1">
             <DollarSign class="h-3 w-3" />
             Цена
-          </label>
+          </div>
           <div class="flex gap-2">
             <Input
-              id="price-min"
               type="number"
               placeholder="От"
-              bind:value={searchState.filters.priceMin}
+              bind:value={priceMin}
               class="text-sm"
+              aria-label="Минимальная цена"
             />
             <Input
-              id="price-max"
               type="number"
               placeholder="До"
-              bind:value={searchState.filters.priceMax}
+              bind:value={priceMax}
               class="text-sm"
+              aria-label="Максимальная цена"
             />
           </div>
         </div>
 
         <!-- Даты -->
         <div class="space-y-2">
-          <label
-            for="date-from"
-            class="text-sm font-medium flex items-center gap-1"
-          >
+          <div class="text-sm font-medium flex items-center gap-1">
             <Calendar class="h-3 w-3" />
             Период
-          </label>
+          </div>
           <div class="flex gap-2">
             <Input
-              id="date-from"
               type="date"
-              bind:value={searchState.filters.dateFrom}
+              bind:value={dateFrom}
               class="text-sm"
+              aria-label="Дата начала"
             />
             <Input
-              id="date-to"
               type="date"
-              bind:value={searchState.filters.dateTo}
+              bind:value={dateTo}
               class="text-sm"
+              aria-label="Дата окончания"
             />
           </div>
         </div>
@@ -514,17 +471,17 @@
         <!-- Место -->
         <div class="space-y-2">
           <label
-            for="location"
+            for="location-input"
             class="text-sm font-medium flex items-center gap-1"
           >
             <MapPin class="h-3 w-3" />
             Место
           </label>
           <Input
-            id="location"
+            id="location-input"
             type="text"
             placeholder="Город или адрес"
-            bind:value={searchState.filters.location}
+            bind:value={locationFilter}
             class="text-sm"
           />
         </div>
@@ -536,13 +493,13 @@
   {#if hasActiveFilters()}
     <div class="flex flex-wrap gap-2">
       <!-- Категории -->
-      {#each searchState.filters.categoryIds as categoryId}
+      {#each selectedCategories as categoryId}
         {@const category = categories.find((c) => c.id === categoryId)}
         {#if category}
           <Badge variant="secondary" class="flex items-center gap-1">
             {category.name}
             <button
-              onclick={() => removeFilter("category", categoryId)}
+              onclick={() => toggleCategory(categoryId)}
               class="hover:text-red-600"
             >
               <X class="h-3 w-3" />
@@ -552,12 +509,15 @@
       {/each}
 
       <!-- Цена -->
-      {#if searchState.filters.priceMin !== undefined || searchState.filters.priceMax !== undefined}
+      {#if priceMin !== undefined || priceMax !== undefined}
         <Badge variant="secondary" class="flex items-center gap-1">
-          Цена: {searchState.filters.priceMin || 0} - {searchState.filters
-            .priceMax || "∞"}
+          Цена: {priceMin || 0} - {priceMax || "∞"}
           <button
-            onclick={() => removeFilter("price")}
+            onclick={() => {
+              priceMin = undefined;
+              priceMax = undefined;
+              performSearch(1);
+            }}
             class="hover:text-red-600"
           >
             <X class="h-3 w-3" />
@@ -566,12 +526,15 @@
       {/if}
 
       <!-- Период -->
-      {#if searchState.filters.dateFrom || searchState.filters.dateTo}
+      {#if dateFrom || dateTo}
         <Badge variant="secondary" class="flex items-center gap-1">
-          Период: {searchState.filters.dateFrom || "..."} - {searchState.filters
-            .dateTo || "..."}
+          Период: {dateFrom || "..."} - {dateTo || "..."}
           <button
-            onclick={() => removeFilter("date")}
+            onclick={() => {
+              dateFrom = "";
+              dateTo = "";
+              performSearch(1);
+            }}
             class="hover:text-red-600"
           >
             <X class="h-3 w-3" />
@@ -580,11 +543,14 @@
       {/if}
 
       <!-- Место -->
-      {#if searchState.filters.location}
+      {#if locationFilter}
         <Badge variant="secondary" class="flex items-center gap-1">
-          Место: {searchState.filters.location}
+          Место: {locationFilter}
           <button
-            onclick={() => removeFilter("location")}
+            onclick={() => {
+              locationFilter = "";
+              performSearch(1);
+            }}
             class="hover:text-red-600"
           >
             <X class="h-3 w-3" />
@@ -595,7 +561,7 @@
   {/if}
 
   <!-- Индикатор загрузки -->
-  {#if searchState.loading}
+  {#if loading}
     <div class="flex items-center justify-center py-4">
       <div
         class="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full"
@@ -605,39 +571,37 @@
   {/if}
 
   <!-- Информация о результатах и пагинация -->
-  {#if paginationState.totalCount > 0}
+  {#if totalCount > 0}
     <div class="flex items-center justify-between text-sm text-gray-600">
       <div>
-        Показано {(paginationState.currentPage - 1) * paginationState.limit +
-          1}-{Math.min(
-          paginationState.currentPage * paginationState.limit,
-          paginationState.totalCount,
+        Показано {(currentPage - 1) * limit + 1}-{Math.min(
+          currentPage * limit,
+          totalCount,
         )}
-        из {paginationState.totalCount} событий
+        из {totalCount} событий
       </div>
 
       <!-- Простая пагинация -->
-      {#if paginationState.totalPages > 1}
+      {#if totalPages > 1}
         <div class="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            onclick={() => handlePageChange(paginationState.currentPage - 1)}
-            disabled={paginationState.currentPage === 1}
+            onclick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
           >
             Назад
           </Button>
 
           <span class="px-2">
-            {paginationState.currentPage} из {paginationState.totalPages}
+            {currentPage} из {totalPages}
           </span>
 
           <Button
             variant="outline"
             size="sm"
-            onclick={() => handlePageChange(paginationState.currentPage + 1)}
-            disabled={paginationState.currentPage ===
-              paginationState.totalPages}
+            onclick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
           >
             Вперед
           </Button>
