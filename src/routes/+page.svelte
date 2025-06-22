@@ -3,8 +3,8 @@
   import AdEvent from "$lib/components/events/AdEvent.svelte";
   import EventList from "$lib/components/events/EventList.svelte";
   import Container from "$lib/components/ui/Container.svelte";
-  import SimpleEventSearch from "$lib/components/events/EventSearch.svelte";
   import type { Event } from "$lib/api";
+  import EventSearch from "$lib/components/events/EventSearch.svelte";
 
   let { data }: { data: any } = $props();
 
@@ -22,7 +22,7 @@
     <AdEvent />
 
     <!-- Упрощенный поиск -->
-    <SimpleEventSearch
+    <EventSearch
       onResults={handleSearchResults}
       categories={data.categories}
       initialEvents={data.events}
