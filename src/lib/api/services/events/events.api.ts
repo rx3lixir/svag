@@ -4,6 +4,7 @@ import type {
   Event,
   EventFilters,
   EventsListResponse,
+  PaginationMeta,
   SearchFilters,
   SuggesionRequest,
   SuggestionsResponse,
@@ -14,7 +15,7 @@ const EVENTS_ENDPOINT = "/event/api/v1/events";
 export const eventsApi = {
   // Получить все события - теперь возвращает полный ответ
   async getAll(
-    filters?: EventFilters & PaginationParams,
+    filters?: EventFilters & PaginationMeta,
   ): Promise<EventsListResponse> {
     return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, filters);
   },
@@ -58,7 +59,7 @@ export const eventsApi = {
 
   // Вспомогательные методы для удобства
   async getAllEvents(
-    filters?: EventFilters & PaginationParams,
+    filters?: EventFilters & PaginationMeta,
   ): Promise<Event[]> {
     const response = await this.getAll(filters);
     return response.events;

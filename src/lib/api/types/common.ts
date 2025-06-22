@@ -18,6 +18,7 @@ export interface PaginationParams {
   page?: number;
   limit?: number;
   sort?: string;
+  offset?: string;
   order?: "asc" | "desc";
 }
 

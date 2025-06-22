@@ -8,20 +8,26 @@
 
   let { data }: { data: any } = $props();
 
-  // Единое состояние для событий
+  // Состояние событий и пагинации
   let currentEvents = $state<Event[]>(data.events);
+  let currentPagination = $state(data.pagination || null);
 
-  // Простой обработчик результатов поиска
-  function handleSearchResults(events: Event[]) {
+  /**
+   * Обработчик результатов поиска
+   * Принимает события и опциональную информацию о пагинации
+   */
+  function handleSearchResults(events: Event[], pagination?: any) {
     currentEvents = events;
+    currentPagination = pagination || null;
   }
 </script>
 
 <Container>
   <div class="space-y-10 pb-10">
+    <!-- Рекламный блок -->
     <AdEvent />
 
-    <!-- Упрощенный поиск -->
+    <!-- Поиск с автокомплитом и фильтрами -->
     <EventSearch
       onResults={handleSearchResults}
       categories={data.categories}
@@ -31,6 +37,17 @@
     <!-- Список событий -->
     <div class="flex flex-col gap-y-8 px-4 sm:px-6 lg:px-8">
       <EventList events={currentEvents} />
+
+      <!-- Дополнительная информация о пагинации (опционально) -->
+      {#if currentPagination && currentPagination.total_count > 0}
+        <div class="text-center text-sm text-gray-500">
+          {#if currentEvents.length === 0}
+            Событий не найдено
+          {:else}
+            Найдено событий: {currentPagination.total_count}
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 </Container>

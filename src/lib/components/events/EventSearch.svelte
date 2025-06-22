@@ -1,7 +1,11 @@
-<!-- SimpleEventSearch.svelte -->
 <script lang="ts">
   import { eventsApi } from "$lib/api";
-  import type { Event, Category, EventsListResponse } from "$lib/api";
+  import type {
+    Event,
+    Category,
+    EventsListResponse,
+    Suggestion,
+  } from "$lib/api";
   import { Badge } from "$lib/components/ui/badge";
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
@@ -12,6 +16,7 @@
     Calendar,
     MapPin,
     DollarSign,
+    Clock,
   } from "lucide-svelte";
 
   let {
@@ -19,14 +24,15 @@
     categories = [],
     initialEvents = [],
   }: {
-    onResults: (events: Event[]) => void;
+    onResults: (events: Event[], pagination?: any) => void;
     categories?: Category[];
     initialEvents?: Event[];
   } = $props();
 
-  // Единое состояние поиска
+  // Состояние поиска и фильтров
   let searchState = $state({
     query: "",
+    showSuggestions: false,
     showFilters: false,
     loading: false,
     filters: {
@@ -39,12 +45,23 @@
     },
   });
 
-  // Подсказки (опционально)
-  let suggestions = $state<string[]>([]);
-  let showSuggestions = $state(false);
+  // Состояние пагинации
+  let paginationState = $state({
+    currentPage: 1,
+    limit: 3, // Для тестирования
+    totalPages: 1,
+    hasMore: false,
+    totalCount: 0,
+  });
 
-  // Debounced поиск
+  // Автокомплит
+  let suggestions = $state<Suggestion[]>([]);
+  let selectedSuggestionIndex = $state(-1);
+  let searchInputElement: HTMLInputElement;
+
+  // Debounce таймеры
   let searchTimeout: ReturnType<typeof setTimeout>;
+  let suggestionsTimeout: ReturnType<typeof setTimeout>;
 
   // Проверяем есть ли активные фильтры
   const hasActiveFilters = $derived(() => {
@@ -60,19 +77,30 @@
   });
 
   // Основная функция поиска
-  async function performSearch() {
+  async function performSearch(
+    page: number = 1,
+    updatePagination: boolean = true,
+  ) {
     clearTimeout(searchTimeout);
 
     searchTimeout = setTimeout(async () => {
-      // Если нет запроса и фильтров - показываем изначальные события
-      if (!searchState.query.trim() && !hasActiveFilters()) {
+      // Если нет запроса и фильтров на первой странице - показываем изначальные события
+      if (page === 1 && !searchState.query.trim() && !hasActiveFilters()) {
         onResults(initialEvents);
+        if (updatePagination) {
+          paginationState.currentPage = 1;
+          paginationState.totalPages = 1;
+          paginationState.hasMore = false;
+          paginationState.totalCount = initialEvents.length;
+        }
         return;
       }
 
       searchState.loading = true;
 
       try {
+        const offset = (page - 1) * paginationState.limit;
+
         const filters = {
           search_text: searchState.query.trim() || undefined,
           category_ids:
@@ -84,20 +112,31 @@
           date_from: searchState.filters.dateFrom || undefined,
           date_to: searchState.filters.dateTo || undefined,
           location: searchState.filters.location || undefined,
-          limit: 50,
-          offset: 0,
+          limit: paginationState.limit,
+          offset: offset,
+          include_count: true, // Всегда запрашиваем общее количество
         };
 
         let result: EventsListResponse;
 
-        // Если есть текстовый запрос - используем search, иначе getAll
+        // Используем search для текстовых запросов, getAll для фильтров
         if (searchState.query.trim()) {
           result = await eventsApi.search(filters);
         } else {
           result = await eventsApi.getAll(filters);
         }
 
-        onResults(result.events);
+        onResults(result.events, result.pagination);
+
+        // Обновляем пагинацию
+        if (updatePagination && result.pagination) {
+          paginationState.totalCount = Number(result.pagination.total_count);
+          paginationState.totalPages = Math.ceil(
+            paginationState.totalCount / paginationState.limit,
+          );
+          paginationState.hasMore = result.pagination.has_more;
+          paginationState.currentPage = page;
+        }
       } catch (error) {
         console.error("Search failed:", error);
         onResults([]);
@@ -107,37 +146,83 @@
     }, 300);
   }
 
-  // Простой поиск подсказок
+  // Загрузка подсказок
   async function loadSuggestions() {
     if (searchState.query.length < 2) {
       suggestions = [];
-      showSuggestions = false;
+      searchState.showSuggestions = false;
+      selectedSuggestionIndex = -1;
       return;
     }
 
-    try {
-      const result = await eventsApi.getSuggestions({
-        query: searchState.query,
-        max_results: 5,
-      });
-      suggestions = result.suggestions.map((s) => s.text);
-      showSuggestions = suggestions.length > 0;
-    } catch (error) {
-      suggestions = [];
-      showSuggestions = false;
-    }
+    clearTimeout(suggestionsTimeout);
+
+    suggestionsTimeout = setTimeout(async () => {
+      try {
+        const result = await eventsApi.getSuggestions({
+          query: searchState.query,
+          max_results: 8,
+          fields: ["name", "location"],
+        });
+
+        suggestions = result.suggestions;
+        searchState.showSuggestions = suggestions.length > 0;
+        selectedSuggestionIndex = -1;
+      } catch (error) {
+        console.error("Failed to load suggestions:", error);
+        suggestions = [];
+        searchState.showSuggestions = false;
+      }
+    }, 150); // Быстрее для автокомплита
   }
 
   // Обработчики событий
   function handleQueryChange() {
     loadSuggestions();
-    performSearch();
+    // Сброс на первую страницу при изменении запроса
+    performSearch(1, true);
   }
 
-  function selectSuggestion(suggestion: string) {
-    searchState.query = suggestion;
-    showSuggestions = false;
-    performSearch();
+  function selectSuggestion(suggestion: Suggestion) {
+    searchState.query = suggestion.text;
+    searchState.showSuggestions = false;
+    selectedSuggestionIndex = -1;
+    searchInputElement.blur();
+    performSearch(1, true);
+  }
+
+  // Навигация по подсказкам с клавиатуры
+  function handleKeyDown(event: KeyboardEvent) {
+    if (!searchState.showSuggestions || suggestions.length === 0) {
+      return;
+    }
+
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        selectedSuggestionIndex = Math.min(
+          selectedSuggestionIndex + 1,
+          suggestions.length - 1,
+        );
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+        break;
+      case "Enter":
+        event.preventDefault();
+        if (selectedSuggestionIndex >= 0) {
+          selectSuggestion(suggestions[selectedSuggestionIndex]);
+        } else {
+          searchState.showSuggestions = false;
+          performSearch(1, true);
+        }
+        break;
+      case "Escape":
+        searchState.showSuggestions = false;
+        selectedSuggestionIndex = -1;
+        break;
+    }
   }
 
   function toggleCategory(categoryId: number) {
@@ -147,7 +232,7 @@
     } else {
       searchState.filters.categoryIds.push(categoryId);
     }
-    performSearch();
+    performSearch(1, true); // Сброс на первую страницу
   }
 
   function removeFilter(type: string, value?: any) {
@@ -168,7 +253,7 @@
         searchState.filters.location = "";
         break;
     }
-    performSearch();
+    performSearch(1, true); // Сброс на первую страницу
   }
 
   function clearAll() {
@@ -182,8 +267,16 @@
       location: "",
     };
     suggestions = [];
-    showSuggestions = false;
+    searchState.showSuggestions = false;
+    selectedSuggestionIndex = -1;
+    paginationState.currentPage = 1;
     onResults(initialEvents);
+  }
+
+  // Функция для смены страницы
+  function handlePageChange(newPage: number) {
+    if (newPage < 1 || newPage > paginationState.totalPages) return;
+    performSearch(newPage, true);
   }
 
   // Реактивный поиск при изменении фильтров
@@ -192,43 +285,70 @@
       searchState.filters.priceMin !== undefined ||
       searchState.filters.priceMax !== undefined
     ) {
-      performSearch();
+      performSearch(1, true);
     }
   });
 
   $effect(() => {
     if (searchState.filters.dateFrom || searchState.filters.dateTo) {
-      performSearch();
+      performSearch(1, true);
     }
   });
 
   $effect(() => {
     if (searchState.filters.location) {
-      performSearch();
+      performSearch(1, true);
     }
   });
+
+  // Скрытие подсказок при клике вне элемента
+  function handleDocumentClick(event: MouseEvent) {
+    const target = event.target as Element;
+    if (!target.closest(".search-container")) {
+      searchState.showSuggestions = false;
+      selectedSuggestionIndex = -1;
+    }
+  }
+
+  // Добавляем и убираем обработчик при монтировании/размонтировании
+  $effect(() => {
+    document.addEventListener("click", handleDocumentClick);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick);
+    };
+  });
+
+  // Функция для получения иконки по типу подсказки
+  function getSuggestionIcon(type: string) {
+    switch (type) {
+      case "event":
+        return Clock;
+      case "location":
+        return MapPin;
+      default:
+        return Search;
+    }
+  }
 </script>
 
 <div class="w-full space-y-4">
   <!-- Основная строка поиска -->
-  <div class="relative">
+  <div class="relative search-container">
     <div class="relative">
       <Search
         class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"
       />
 
       <Input
+        bind:this={searchInputElement}
         type="text"
         placeholder="Поиск событий..."
         bind:value={searchState.query}
         oninput={handleQueryChange}
-        onkeydown={(e) => {
-          if (e.key === "Enter") {
-            showSuggestions = false;
-            performSearch();
-          }
-          if (e.key === "Escape") {
-            showSuggestions = false;
+        onkeydown={handleKeyDown}
+        onfocus={() => {
+          if (suggestions.length > 0) {
+            searchState.showSuggestions = true;
           }
         }}
         class="pl-10 pr-20"
@@ -244,7 +364,8 @@
             size="sm"
             onclick={() => {
               searchState.query = "";
-              performSearch();
+              searchState.showSuggestions = false;
+              performSearch(1, true);
             }}
             class="h-6 w-6 p-0"
           >
@@ -275,17 +396,34 @@
       </div>
     </div>
 
-    <!-- Подсказки -->
-    {#if showSuggestions && suggestions.length > 0}
+    <!-- Подсказки автокомплита -->
+    {#if searchState.showSuggestions && suggestions.length > 0}
       <div
-        class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto"
+        class="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto"
       >
-        {#each suggestions as suggestion}
+        {#each suggestions as suggestion, index}
+          {@const Icon = getSuggestionIcon(suggestion.type)}
           <button
-            class="w-full text-left px-4 py-2 hover:bg-gray-50 border-b last:border-b-0"
+            class="w-full text-left px-4 py-3 hover:bg-gray-50 border-b last:border-b-0 flex items-center gap-3 {index ===
+            selectedSuggestionIndex
+              ? 'bg-blue-50 border-blue-200'
+              : ''}"
             onclick={() => selectSuggestion(suggestion)}
           >
-            {suggestion}
+            <Icon class="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <div class="flex-1">
+              <div class="font-medium text-sm">{suggestion.text}</div>
+              {#if suggestion.category || suggestion.type}
+                <div class="text-xs text-gray-500">
+                  {suggestion.category || suggestion.type}
+                </div>
+              {/if}
+            </div>
+            {#if suggestion.score}
+              <div class="text-xs text-gray-400">
+                {Math.round(suggestion.score * 100)}%
+              </div>
+            {/if}
           </button>
         {/each}
       </div>
@@ -463,6 +601,48 @@
         class="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full"
       ></div>
       <span class="ml-2 text-gray-600">Поиск событий...</span>
+    </div>
+  {/if}
+
+  <!-- Информация о результатах и пагинация -->
+  {#if paginationState.totalCount > 0}
+    <div class="flex items-center justify-between text-sm text-gray-600">
+      <div>
+        Показано {(paginationState.currentPage - 1) * paginationState.limit +
+          1}-{Math.min(
+          paginationState.currentPage * paginationState.limit,
+          paginationState.totalCount,
+        )}
+        из {paginationState.totalCount} событий
+      </div>
+
+      <!-- Простая пагинация -->
+      {#if paginationState.totalPages > 1}
+        <div class="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onclick={() => handlePageChange(paginationState.currentPage - 1)}
+            disabled={paginationState.currentPage === 1}
+          >
+            Назад
+          </Button>
+
+          <span class="px-2">
+            {paginationState.currentPage} из {paginationState.totalPages}
+          </span>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onclick={() => handlePageChange(paginationState.currentPage + 1)}
+            disabled={paginationState.currentPage ===
+              paginationState.totalPages}
+          >
+            Вперед
+          </Button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

@@ -1,18 +1,24 @@
+// src/routes/+page.server.ts
 import { eventsApi } from "$lib";
 
 export const load = async () => {
   try {
-    const eventsResponse = await eventsApi.getAll();
+    // Загружаем первые события с пагинацией для начального состояния
+    const eventsResponse = await eventsApi.getAll({
+      limit: 3, // Для тестирования используем по 3 события
+      offset: 0,
+      include_count: true, // Получаем общее количество
+    });
 
     return {
-      events: eventsResponse.events,
-      pagination: eventsResponse.pagination,
+      events: eventsResponse.events || [],
+      pagination: eventsResponse.pagination || null,
     };
   } catch (error) {
     console.error("Failed to load events:", error);
     return {
       events: [],
-      paginaion: null,
+      pagination: null,
     };
   }
 };
