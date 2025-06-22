@@ -18,7 +18,12 @@ export const load = async () => {
     console.error("Failed to load events:", error);
     return {
       events: [],
-      pagination: null,
+      pagination: {
+        total_count: 0,
+        limit: 3,
+        offset: 0,
+        has_more: false,
+      },
     };
   }
 };

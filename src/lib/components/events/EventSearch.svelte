@@ -54,12 +54,14 @@
 
   // Пагинация
   let currentPage = $state(1);
-  let limit = $state(12); // Увеличиваем лимит до нормального значения
+  let limit = $state(12);
   let totalPages = $state(1);
   let totalCount = $state(0);
 
   // Таймауты
   let suggestionsTimeout: ReturnType<typeof setTimeout>;
+  let priceChangeTimeout: ReturnType<typeof setTimeout>;
+  let locationChangeTimeout: ReturnType<typeof setTimeout>;
   let searchInputElement: any;
 
   // Проверяем есть ли активные фильтры
@@ -79,19 +81,33 @@
     return searchQuery.trim() || hasActiveFilters();
   });
 
-  // Основная функция поиска - вызывается только при явном действии пользователя
+  // Основная функция поиска - ИСПРАВЛЕНО
   const performSearch = async (page: number = 1) => {
+    console.log(
+      "performSearch called with page:",
+      page,
+      "hasActiveSearch:",
+      hasActiveSearch(),
+    );
+
     // Если нет запроса и фильтров - показываем изначальные события
     if (!hasActiveSearch()) {
+      console.log("No active search - showing initial events");
       onResults(initialEvents);
+
+      // ИСПРАВЛЕНО: Правильно вычисляем пагинацию для начальных событий
+      const initialTotalCount = initialEvents.length;
+      const initialTotalPages = Math.ceil(initialTotalCount / limit);
+
       currentPage = 1;
-      totalPages = 1;
-      totalCount = initialEvents.length;
+      totalPages = initialTotalPages;
+      totalCount = initialTotalCount;
+
       onPaginationChange?.({
-        total_count: initialEvents.length,
+        total_count: initialTotalCount,
         limit: limit,
         offset: 0,
-        has_more: 0,
+        has_more: initialTotalCount > limit,
       });
       return;
     }
@@ -118,6 +134,8 @@
       if (dateTo) searchParams.date_to = dateTo;
       if (locationFilter) searchParams.location = locationFilter;
 
+      console.log("Search params:", searchParams);
+
       let result: EventsListResponse;
 
       // Используем search для текстовых запросов, getAll для остальных
@@ -134,22 +152,44 @@
           date_from: dateFrom,
           date_to: dateTo,
           location: locationFilter,
+          include_count: true, // ВАЖНО: добавляем include_count
         };
+        console.log("Using getAll with params:", getParams);
         result = await eventsApi.getAll(getParams);
       }
 
+      console.log("Search result:", result);
+
       onResults(result.events, result.pagination);
 
-      // Обновляем пагинацию
+      // ИСПРАВЛЕНО: Обновляем пагинацию в EventSearch
       if (result.pagination) {
         totalCount = result.pagination.total_count;
         totalPages = Math.ceil(totalCount / limit);
         currentPage = page;
         onPaginationChange?.(result.pagination);
+
+        console.log("Updated pagination in EventSearch:", {
+          totalCount,
+          totalPages,
+          currentPage,
+          limit,
+          offset,
+        });
+      } else {
+        // Если нет пагинации в ответе, устанавливаем базовые значения
+        totalCount = result.events.length;
+        totalPages = 1;
+        currentPage = 1;
+
+        console.log("No pagination in response, using fallback values");
       }
     } catch (error) {
       console.error("Search failed:", error);
       onResults([]);
+      currentPage = 1;
+      totalPages = 1;
+      totalCount = 0;
       onPaginationChange?.(null);
     } finally {
       loading = false;
@@ -188,7 +228,6 @@
   // Обработчик изменения текста - ТОЛЬКО загружает подсказки
   const handleQueryChange = () => {
     loadSuggestions();
-    // НЕ вызываем performSearch автоматически!
   };
 
   // Выбор подсказки
@@ -197,17 +236,18 @@
     showSuggestions = false;
     selectedSuggestionIndex = -1;
     searchInputElement.blur();
-    // Выполняем поиск только после выбора подсказки
+    // Сбрасываем на первую страницу и выполняем поиск
+    currentPage = 1;
     performSearch(1);
   };
 
   // Обработка клавиш
   const handleKeyDown = (event: KeyboardEvent) => {
     if (!showSuggestions || suggestions.length === 0) {
-      // Если нет подсказок, но нажали Enter - выполняем поиск
       if (event.key === "Enter") {
         event.preventDefault();
         showSuggestions = false;
+        currentPage = 1; // Сбрасываем на первую страницу
         performSearch(1);
       }
       return;
@@ -231,6 +271,7 @@
           selectSuggestion(suggestions[selectedSuggestionIndex]);
         } else {
           showSuggestions = false;
+          currentPage = 1; // Сбрасываем на первую страницу
           performSearch(1);
         }
         break;
@@ -241,7 +282,7 @@
     }
   };
 
-  // Переключение категории
+  // ИСПРАВЛЕНО: Переключение категории
   const toggleCategory = (categoryId: number) => {
     const index = selectedCategories.indexOf(categoryId);
     if (index > -1) {
@@ -249,11 +290,32 @@
     } else {
       selectedCategories.push(categoryId);
     }
-    // Выполняем поиск сразу после изменения категории
+    // ВАЖНО: сбрасываем на первую страницу при изменении фильтров
+    currentPage = 1;
     performSearch(1);
   };
 
-  // Очистка всех фильтров
+  // ИСПРАВЛЕНО: Обработчики для фильтров с debounce
+  const handleFilterChange = () => {
+    currentPage = 1;
+    performSearch(1);
+  };
+
+  const handlePriceChange = () => {
+    clearTimeout(priceChangeTimeout);
+    priceChangeTimeout = setTimeout(() => {
+      handleFilterChange();
+    }, 500);
+  };
+
+  const handleLocationChange = () => {
+    clearTimeout(locationChangeTimeout);
+    locationChangeTimeout = setTimeout(() => {
+      handleFilterChange();
+    }, 500);
+  };
+
+  // ИСПРАВЛЕНО: Очистка всех фильтров
   const clearAll = () => {
     searchQuery = "";
     selectedCategories = [];
@@ -265,25 +327,59 @@
     suggestions = [];
     showSuggestions = false;
     selectedSuggestionIndex = -1;
+
+    // ИСПРАВЛЕНО: Правильно вычисляем пагинацию для начальных событий
+    const initialTotalCount = initialEvents.length;
+    const initialTotalPages = Math.ceil(initialTotalCount / limit);
+
     currentPage = 1;
+    totalPages = initialTotalPages;
+    totalCount = initialTotalCount;
+
+    console.log("clearAll - resetting to initial events:", {
+      totalCount: initialTotalCount,
+      totalPages: initialTotalPages,
+      eventsCount: initialEvents.length,
+    });
+
     // Возвращаемся к начальным событиям
     onResults(initialEvents);
     onPaginationChange?.({
-      total_count: initialEvents.length,
+      total_count: initialTotalCount,
       limit: limit,
       offset: 0,
-      has_more: 0,
+      has_more: initialTotalCount > limit,
     });
   };
 
-  // Обработка изменения страницы
+  // ИСПРАВЛЕНО: Обработка изменения страницы
   const handlePageChange = (newPage: number) => {
-    if (newPage < 1 || newPage > totalPages) return;
+    console.log(
+      "handlePageChange called:",
+      newPage,
+      "current:",
+      currentPage,
+      "total:",
+      totalPages,
+    );
+    console.log("Current state in EventSearch:", {
+      currentPage,
+      totalPages,
+      totalCount,
+    });
+
+    if (newPage < 1 || newPage === currentPage) {
+      console.log("Page change ignored - invalid page or same page");
+      return;
+    }
+
+    // Убираем проверку на totalPages, так как она может быть устаревшей
     performSearch(newPage);
   };
 
-  // Экспортируем функцию для внешнего управления пагинацией
+  // ИСПРАВЛЕНО: Экспортируем функцию для внешнего управления пагинацией
   const goToPage = (page: number) => {
+    console.log("goToPage called:", page);
     handlePageChange(page);
   };
 
@@ -293,6 +389,23 @@
     getCurrentPage: () => currentPage,
     getTotalPages: () => totalPages,
   };
+
+  // ДОБАВЛЕНО: Отслеживание изменений для дебага
+  $effect(() => {
+    console.log("Filter state changed:", {
+      searchQuery,
+      selectedCategories,
+      priceMin,
+      priceMax,
+      dateFrom,
+      dateTo,
+      locationFilter,
+      hasActiveSearch: hasActiveSearch(),
+      currentPage,
+      totalPages,
+      totalCount,
+    });
+  });
 </script>
 
 <div class="w-full space-y-4">
@@ -329,6 +442,7 @@
             onclick={() => {
               searchQuery = "";
               showSuggestions = false;
+              currentPage = 1;
               performSearch(1);
             }}
             class="h-6 w-6 p-0"
@@ -433,6 +547,7 @@
               type="number"
               placeholder="От"
               bind:value={priceMin}
+              oninput={handlePriceChange}
               class="text-sm"
               aria-label="Минимальная цена"
             />
@@ -440,6 +555,7 @@
               type="number"
               placeholder="До"
               bind:value={priceMax}
+              oninput={handlePriceChange}
               class="text-sm"
               aria-label="Максимальная цена"
             />
@@ -456,12 +572,14 @@
             <Input
               type="date"
               bind:value={dateFrom}
+              onchange={handleFilterChange}
               class="text-sm"
               aria-label="Дата начала"
             />
             <Input
               type="date"
               bind:value={dateTo}
+              onchange={handleFilterChange}
               class="text-sm"
               aria-label="Дата окончания"
             />
@@ -482,6 +600,7 @@
             type="text"
             placeholder="Город или адрес"
             bind:value={locationFilter}
+            oninput={handleLocationChange}
             class="text-sm"
           />
         </div>
@@ -516,7 +635,7 @@
             onclick={() => {
               priceMin = undefined;
               priceMax = undefined;
-              performSearch(1);
+              handleFilterChange();
             }}
             class="hover:text-red-600"
           >
@@ -533,7 +652,7 @@
             onclick={() => {
               dateFrom = "";
               dateTo = "";
-              performSearch(1);
+              handleFilterChange();
             }}
             class="hover:text-red-600"
           >
@@ -549,7 +668,7 @@
           <button
             onclick={() => {
               locationFilter = "";
-              performSearch(1);
+              handleFilterChange();
             }}
             class="hover:text-red-600"
           >
@@ -574,6 +693,9 @@
   {#if hasActiveSearch() && totalCount > 0}
     <div class="text-sm text-gray-600">
       Найдено событий: {totalCount}
+      {#if totalPages > 1}
+        (страница {currentPage} из {totalPages})
+      {/if}
     </div>
   {/if}
 </div>

@@ -12,8 +12,20 @@ import type {
 const EVENTS_ENDPOINT = "/event/api/v1/events";
 
 export const eventsApi = {
-  // Получить все события
+  // Получить все события c обработкой фильтров
   async getAll(filters?: EventFilters): Promise<EventsListResponse> {
+    const cleanFilters: Record<string, any> = {};
+
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== "") {
+          cleanFilters[key] = value;
+        }
+      });
+    }
+
+    console.log("API getAll called with filters:", cleanFilters);
+
     return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, filters);
   },
 
@@ -27,10 +39,26 @@ export const eventsApi = {
     categoryId: number,
     filters?: EventFilters,
   ): Promise<EventsListResponse> {
-    return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, {
-      ...filters,
+    const cleanFilters: Record<string, any> = {
       category_id: categoryId,
-    });
+    };
+
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (
+          value !== undefined &&
+          value !== null &&
+          value !== "" &&
+          key !== "category_id"
+        ) {
+          cleanFilters[key] = value;
+        }
+      });
+    }
+
+    console.log("API getByCategory called with filters:", cleanFilters);
+
+    return apiClient.get<EventsListResponse>(EVENTS_ENDPOINT, cleanFilters);
   },
 
   // Поиск событий
