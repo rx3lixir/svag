@@ -9,20 +9,22 @@
 
   let { data }: { data: any } = $props();
 
-  // Состояние событий и пагинации
-  let currentEvents = $state<Event[]>(data.events);
-  let currentPagination = $state(data.pagination || null);
+  // ИСПРАВЛЕНО: Состояние событий и пагинации как примитивные значения
+  let currentEvents = $state<Event[]>([...data.events]); // клонируем массив
+  let currentPagination = $state<any>(
+    data.pagination ? { ...data.pagination } : null,
+  ); // клонируем объект
   let searchAPI = $state<any>(null);
 
-  // Обработчик результатов поиска
+  // ИСПРАВЛЕНО: Обработчик результатов поиска
   const handleSearchResults = (events: Event[], pagination?: any) => {
-    currentEvents = events;
-    currentPagination = pagination || null;
+    currentEvents = [...events]; // клонируем массив
+    currentPagination = pagination ? { ...pagination } : null; // клонируем объект
   };
 
-  // Обработчик изменения пагинации
+  // ИСПРАВЛЕНО: Обработчик изменения пагинации
   const handlePaginationChange = (pagination: any) => {
-    currentPagination = pagination;
+    currentPagination = pagination ? { ...pagination } : null; // клонируем объект
   };
 
   // ИСПРАВЛЕНО: Обработчик клика по странице в пагинации
@@ -31,11 +33,10 @@
       "Page click:",
       page,
       "Current:",
-      currentPageNumber(),
+      getCurrentPageNumber(),
       "Total:",
-      totalPages(),
+      getTotalPages(),
     );
-    console.log("Current pagination object:", currentPagination);
 
     if (searchAPI && typeof searchAPI.goToPage === "function") {
       searchAPI.goToPage(page);
@@ -47,13 +48,13 @@
     }
   };
 
-  // ИСПРАВЛЕНО: Вычисляемые значения для пагинации
-  let currentPageNumber = $derived(() => {
+  // ИСПРАВЛЕНО: Функции вместо derived для вычисления пагинации
+  function getCurrentPageNumber(): number {
     if (!currentPagination || !currentPagination.limit) return 1;
     return Math.floor(currentPagination.offset / currentPagination.limit) + 1;
-  });
+  }
 
-  let totalPages = $derived(() => {
+  function getTotalPages(): number {
     if (
       !currentPagination ||
       !currentPagination.total_count ||
@@ -61,18 +62,18 @@
     )
       return 1;
     return Math.ceil(currentPagination.total_count / currentPagination.limit);
-  });
+  }
 
-  let totalCount = $derived(() => {
+  function getTotalCount(): number {
     return currentPagination?.total_count || 0;
-  });
+  }
 
-  // ДОБАВЛЕНО: Дебаг информация
+  // ИСПРАВЛЕНО: Реактивность без использования $derived - используем $effect для дебага
   $effect(() => {
     console.log("Pagination state:", {
-      currentPage: currentPageNumber(),
-      totalPages: totalPages(),
-      totalCount: totalCount(),
+      currentPage: getCurrentPageNumber(),
+      totalPages: getTotalPages(),
+      totalCount: getTotalCount(),
       pagination: currentPagination,
       hasSearchAPI: !!searchAPI,
       eventsCount: currentEvents.length,
@@ -100,22 +101,22 @@
       <EventList events={currentEvents} />
 
       <!-- ИСПРАВЛЕНО: Пагинация - показываем только если есть больше одной страницы -->
-      {#if totalPages() > 1}
+      {#if getTotalPages() > 1}
         <div class="flex justify-center">
           <Pagination.Root
-            count={totalCount()}
-            perPage={currentPagination?.limit || 12}
+            count={getTotalCount()}
+            perPage={currentPagination?.limit || 3}
           >
             {#snippet children({ pages })}
               <Pagination.Content>
                 <Pagination.Item>
                   <Pagination.PrevButton
                     onclick={() => {
-                      const newPage = Math.max(1, currentPageNumber() - 1);
+                      const newPage = Math.max(1, getCurrentPageNumber() - 1);
                       console.log("Prev clicked, going to page:", newPage);
                       handlePageClick(newPage);
                     }}
-                    disabled={currentPageNumber() <= 1}
+                    disabled={getCurrentPageNumber() <= 1}
                   />
                 </Pagination.Item>
                 {#each pages as page (page.key)}
@@ -127,7 +128,7 @@
                     <Pagination.Item>
                       <Pagination.Link
                         {page}
-                        isActive={currentPageNumber() === page.value}
+                        isActive={getCurrentPageNumber() === page.value}
                         onclick={() => {
                           console.log("Page link clicked:", page.value);
                           handlePageClick(page.value);
@@ -142,13 +143,13 @@
                   <Pagination.NextButton
                     onclick={() => {
                       const newPage = Math.min(
-                        totalPages(),
-                        currentPageNumber() + 1,
+                        getTotalPages(),
+                        getCurrentPageNumber() + 1,
                       );
                       console.log("Next clicked, going to page:", newPage);
                       handlePageClick(newPage);
                     }}
-                    disabled={currentPageNumber() >= totalPages()}
+                    disabled={getCurrentPageNumber() >= getTotalPages()}
                   />
                 </Pagination.Item>
               </Pagination.Content>
@@ -158,19 +159,19 @@
       {/if}
 
       <!-- ИСПРАВЛЕНО: Информация о результатах -->
-      {#if currentPagination && totalCount() > 0}
+      {#if currentPagination && getTotalCount() > 0}
         <div class="text-center text-sm text-gray-500">
           {#if currentEvents.length === 0}
             Событий не найдено
           {:else}
             Показано {Math.max(
               1,
-              (currentPageNumber() - 1) * (currentPagination.limit || 12) + 1,
+              (getCurrentPageNumber() - 1) * (currentPagination.limit || 3) + 1,
             )}-{Math.min(
-              currentPageNumber() * (currentPagination.limit || 12),
-              totalCount(),
+              getCurrentPageNumber() * (currentPagination.limit || 3),
+              getTotalCount(),
             )}
-            из {totalCount()} событий
+            из {getTotalCount()} событий
           {/if}
         </div>
       {:else if currentEvents.length === 0}
@@ -186,13 +187,15 @@
         <summary>Debug Info</summary>
         <pre>{JSON.stringify(
             {
-              currentPage: currentPageNumber(),
-              totalPages: totalPages(),
-              totalCount: totalCount(),
+              currentPage: getCurrentPageNumber(),
+              totalPages: getTotalPages(),
+              totalCount: getTotalCount(),
               limit: currentPagination?.limit,
               offset: currentPagination?.offset,
               hasSearchAPI: !!searchAPI,
               searchAPIType: typeof searchAPI?.goToPage,
+              eventsLength: currentEvents.length,
+              paginationExists: !!currentPagination,
             },
             null,
             2,

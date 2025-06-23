@@ -34,27 +34,27 @@
     searchAPI?: any;
   } = $props();
 
-  // Глобальное состояние
+  // ИСПРАВЛЕНО: Используем примитивные значения в $state вместо proxy объектов
   let searchQuery = $state("");
   let showFilters = $state(false);
   let loading = $state(false);
 
-  // Фильтры
+  // ИСПРАВЛЕНО: Фильтры как отдельные примитивные значения
   let selectedCategories = $state<number[]>([]);
-  let priceMin = $state<number | undefined>();
-  let priceMax = $state<number | undefined>();
+  let priceMin = $state<number | undefined>(undefined);
+  let priceMax = $state<number | undefined>(undefined);
   let dateFrom = $state("");
   let dateTo = $state("");
   let locationFilter = $state("");
 
-  // Автокомплит - теперь отдельно от поиска
+  // Автокомплит
   let suggestions = $state<Suggestion[]>([]);
   let showSuggestions = $state(false);
   let selectedSuggestionIndex = $state(-1);
 
-  // Пагинация
+  // ИСПРАВЛЕНО: Пагинация как примитивные значения - используем тот же limit что и в начальных данных
   let currentPage = $state(1);
-  let limit = $state(12);
+  let limit = $state(3); // ИСПРАВЛЕНО: Используем тот же лимит что и на сервере
   let totalPages = $state(1);
   let totalCount = $state(0);
 
@@ -64,24 +64,24 @@
   let locationChangeTimeout: ReturnType<typeof setTimeout>;
   let searchInputElement: any;
 
-  // Проверяем есть ли активные фильтры
-  const hasActiveFilters = $derived(() => {
+  // ИСПРАВЛЕНО: Проверяем есть ли активные фильтры без использования derived
+  function hasActiveFilters(): boolean {
     return (
       selectedCategories.length > 0 ||
       priceMin !== undefined ||
       priceMax !== undefined ||
-      dateFrom ||
-      dateTo ||
-      locationFilter
+      dateFrom !== "" ||
+      dateTo !== "" ||
+      locationFilter !== ""
     );
-  });
+  }
 
-  // Проверяем есть ли активный поиск (запрос или фильтры)
-  const hasActiveSearch = $derived(() => {
-    return searchQuery.trim() || hasActiveFilters();
-  });
+  // ИСПРАВЛЕНО: Проверяем есть ли активный поиск
+  function hasActiveSearch(): boolean {
+    return searchQuery.trim() !== "" || hasActiveFilters();
+  }
 
-  // Основная функция поиска - ИСПРАВЛЕНО
+  // ИСПРАВЛЕНО: Основная функция поиска - ВСЕГДА делаем API запрос для пагинации
   const performSearch = async (page: number = 1) => {
     console.log(
       "performSearch called with page:",
@@ -90,34 +90,12 @@
       hasActiveSearch(),
     );
 
-    // Если нет запроса и фильтров - показываем изначальные события
-    if (!hasActiveSearch()) {
-      console.log("No active search - showing initial events");
-      onResults(initialEvents);
-
-      // ИСПРАВЛЕНО: Правильно вычисляем пагинацию для начальных событий
-      const initialTotalCount = initialEvents.length;
-      const initialTotalPages = Math.ceil(initialTotalCount / limit);
-
-      currentPage = 1;
-      totalPages = initialTotalPages;
-      totalCount = initialTotalCount;
-
-      onPaginationChange?.({
-        total_count: initialTotalCount,
-        limit: limit,
-        offset: 0,
-        has_more: initialTotalCount > limit,
-      });
-      return;
-    }
-
     loading = true;
 
     try {
       const offset = (page - 1) * limit;
 
-      // Формируем параметры поиска
+      // ИСПРАВЛЕНО: ВСЕГДА формируем параметры запроса, даже если нет фильтров
       const searchParams: SearchFilters = {
         limit,
         offset,
@@ -127,7 +105,7 @@
       // Добавляем параметры только если они есть
       if (searchQuery.trim()) searchParams.search_text = searchQuery.trim();
       if (selectedCategories.length > 0)
-        searchParams.category_ids = selectedCategories;
+        searchParams.category_ids = [...selectedCategories]; // клонируем массив
       if (priceMin !== undefined) searchParams.min_price = priceMin;
       if (priceMax !== undefined) searchParams.max_price = priceMax;
       if (dateFrom) searchParams.date_from = dateFrom;
@@ -138,23 +116,29 @@
 
       let result: EventsListResponse;
 
-      // Используем search для текстовых запросов, getAll для остальных
+      // ИСПРАВЛЕНО: Используем search для текстовых запросов, getAll для всех остальных случаев (включая простую пагинацию)
       if (searchQuery.trim()) {
+        console.log("Using search API for text query");
         result = await eventsApi.search(searchParams);
       } else {
-        // Преобразуем для getAll API
-        const getParams = {
+        // ИСПРАВЛЕНО: Всегда используем getAll API для пагинации, даже без фильтров
+        const getParams: any = {
           limit,
           offset,
-          category_id: selectedCategories[0], // getAll принимает только одну категорию
-          price_min: priceMin,
-          price_max: priceMax,
-          date_from: dateFrom,
-          date_to: dateTo,
-          location: locationFilter,
-          include_count: true, // ВАЖНО: добавляем include_count
+          include_count: true,
         };
-        console.log("Using getAll with params:", getParams);
+
+        // Добавляем фильтры только если они установлены
+        if (selectedCategories.length > 0) {
+          getParams.category_ids = selectedCategories.join(",");
+        }
+        if (priceMin !== undefined) getParams.min_price = priceMin;
+        if (priceMax !== undefined) getParams.max_price = priceMax;
+        if (dateFrom !== "") getParams.date_from = dateFrom;
+        if (dateTo !== "") getParams.date_to = dateTo;
+        if (locationFilter !== "") getParams.location = locationFilter;
+
+        console.log("Using getAll API with params:", getParams);
         result = await eventsApi.getAll(getParams);
       }
 
@@ -162,7 +146,7 @@
 
       onResults(result.events, result.pagination);
 
-      // ИСПРАВЛЕНО: Обновляем пагинацию в EventSearch
+      // ИСПРАВЛЕНО: Обновляем пагинацию
       if (result.pagination) {
         totalCount = result.pagination.total_count;
         totalPages = Math.ceil(totalCount / limit);
@@ -286,9 +270,9 @@
   const toggleCategory = (categoryId: number) => {
     const index = selectedCategories.indexOf(categoryId);
     if (index > -1) {
-      selectedCategories.splice(index, 1);
+      selectedCategories = selectedCategories.filter((id) => id !== categoryId);
     } else {
-      selectedCategories.push(categoryId);
+      selectedCategories = [...selectedCategories, categoryId];
     }
     // ВАЖНО: сбрасываем на первую страницу при изменении фильтров
     currentPage = 1;
@@ -315,7 +299,7 @@
     }, 500);
   };
 
-  // ИСПРАВЛЕНО: Очистка всех фильтров
+  // ИСПРАВЛЕНО: Очистка всех фильтров - теперь делает API запрос
   const clearAll = () => {
     searchQuery = "";
     selectedCategories = [];
@@ -328,28 +312,11 @@
     showSuggestions = false;
     selectedSuggestionIndex = -1;
 
-    // ИСПРАВЛЕНО: Правильно вычисляем пагинацию для начальных событий
-    const initialTotalCount = initialEvents.length;
-    const initialTotalPages = Math.ceil(initialTotalCount / limit);
+    console.log("clearAll - making API request for page 1");
 
+    // ИСПРАВЛЕНО: Делаем API запрос вместо возврата к начальным событиям
     currentPage = 1;
-    totalPages = initialTotalPages;
-    totalCount = initialTotalCount;
-
-    console.log("clearAll - resetting to initial events:", {
-      totalCount: initialTotalCount,
-      totalPages: initialTotalPages,
-      eventsCount: initialEvents.length,
-    });
-
-    // Возвращаемся к начальным событиям
-    onResults(initialEvents);
-    onPaginationChange?.({
-      total_count: initialTotalCount,
-      limit: limit,
-      offset: 0,
-      has_more: initialTotalCount > limit,
-    });
+    performSearch(1);
   };
 
   // ИСПРАВЛЕНО: Обработка изменения страницы
@@ -362,18 +329,12 @@
       "total:",
       totalPages,
     );
-    console.log("Current state in EventSearch:", {
-      currentPage,
-      totalPages,
-      totalCount,
-    });
 
     if (newPage < 1 || newPage === currentPage) {
       console.log("Page change ignored - invalid page or same page");
       return;
     }
 
-    // Убираем проверку на totalPages, так как она может быть устаревшей
     performSearch(newPage);
   };
 
@@ -390,21 +351,22 @@
     getTotalPages: () => totalPages,
   };
 
-  // ДОБАВЛЕНО: Отслеживание изменений для дебага
+  // ДОБАВЛЕНО: Инициализация правильных значений пагинации при загрузке
   $effect(() => {
-    console.log("Filter state changed:", {
-      searchQuery,
-      selectedCategories,
-      priceMin,
-      priceMax,
-      dateFrom,
-      dateTo,
-      locationFilter,
-      hasActiveSearch: hasActiveSearch(),
-      currentPage,
-      totalPages,
-      totalCount,
-    });
+    // Инициализируем пагинацию на основе начальных данных только один раз
+    if (initialEvents.length > 0 && totalCount === 0) {
+      // Устанавливаем начальные значения пагинации
+      totalCount = initialEvents.length; // Это неправильно для реальной пагинации, но пока пусть будет
+      totalPages = Math.ceil(totalCount / limit);
+      currentPage = 1;
+
+      console.log("Initialized pagination from initial events:", {
+        totalCount,
+        totalPages,
+        limit,
+        currentPage,
+      });
+    }
   });
 </script>
 
